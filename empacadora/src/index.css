@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Variables de tema por defecto (Selva) ───────────────────────────────── */
+:root {
+  --surface-base:    #0b1120;
+  --surface-raised:  #101b2e;
+  --surface-overlay: #0d1626;
+  --surface-deep:    #070d18;
+  --ink:             #d8e3ef;
+  --ink-muted:       #7c93ae;
+  --ink-faint:       #3a526a;
+  --line:            #1c2e46;
+  --line-dim:        #131f33;
+
+  /* Acento (se sobreescribe por App.tsx) */
+  --emp-bg-main:    #0b1120;
+  --emp-bg-panel:   #070d18;
+  --emp-border:     #1c2e46;
+  --emp-accent-bg:  #0f2a1a;
+  --emp-accent:     #16a34a;
+  --emp-accent-txt: #4ade80;
+}
+
+body {
+  background-color: var(--surface-base);
+  color: var(--ink);
+  font-feature-settings: "cv02","cv03","cv04","cv11";
+}
+
+/* ── Inputs / selects ─────────────────────────────────────────────────────── */
+input, select, textarea {
+  color-scheme: dark;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+input[type="date"],
+input[type="time"],
+select {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Ocultar spinner numérico */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--surface-base); }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--line-dim); }
+
+/* ── Tabla desktop / tarjetas mobile ─────────────────────────────────────── */
+.rv-mobile-cards { display: none; }
+@media (max-width: 640px) {
+  .rv-desktop-table { display: none !important; }
+  .rv-mobile-cards  { display: block; }
+}
+
+/* ── Focus ring ───────────────────────────────────────────────────────────── */
+.focus-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--emp-accent-bg);
+  border-color: var(--emp-accent);
+}
+
+/* ── Botón primario temático ─────────────────────────────────────────────── */
+.btn-primary {
+  background-color: var(--emp-accent);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+.btn-primary:active:not(:disabled) {
+  filter: brightness(0.9);
+}

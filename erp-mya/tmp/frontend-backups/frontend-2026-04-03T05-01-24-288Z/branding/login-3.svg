@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1200" viewBox="0 0 1800 1200">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="50%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#334155"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22c55e" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.75"/>
+    </linearGradient>
+  </defs>
+  <rect width="1800" height="1200" fill="url(#bg3)"/>
+  <g fill="none" stroke="url(#wave)" stroke-width="6">
+    <path d="M0 760 C180 700, 340 840, 520 760 S880 610, 1080 700 S1400 900, 1800 760"/>
+    <path d="M0 830 C180 770, 340 910, 520 830 S880 680, 1080 770 S1400 970, 1800 830"/>
+    <path d="M0 900 C180 840, 340 980, 520 900 S880 750, 1080 840 S1400 1040, 1800 900"/>
+  </g>
+  <g fill="rgba(255,255,255,0.08)">
+    <circle cx="260" cy="240" r="12"/>
+    <circle cx="330" cy="240" r="12"/>
+    <circle cx="400" cy="240" r="12"/>
+    <circle cx="470" cy="240" r="12"/>
+    <circle cx="540" cy="240" r="12"/>
+    <circle cx="610" cy="240" r="12"/>
+  </g>
+  <g fill="rgba(255,255,255,0.06)">
+    <rect x="1030" y="180" width="560" height="320" rx="24"/>
+    <rect x="1030" y="540" width="560" height="140" rx="24"/>
+    <rect x="1030" y="720" width="560" height="140" rx="24"/>
+  </g>
+</svg>

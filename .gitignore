@@ -1,0 +1,27 @@
+# Dependencias
+node_modules/
+**/node_modules/
+
+# Builds
+**/build/
+**/dist/
+**/.next/
+
+# Variables de entorno
+**/.env
+**/.env.local
+**/.env.production
+
+# Temporales
+_tmp_fe44_docx/
+*.log
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secretos y configuración local
+.claude/
+Datos.txt
+**/.env*

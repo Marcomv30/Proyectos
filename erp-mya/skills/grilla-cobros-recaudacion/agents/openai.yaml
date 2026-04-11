@@ -1,0 +1,4 @@
+interface:
+  display_name: "Grilla de Cobros y Recaudacion"
+  short_description: "Implementa UX y logica segura en grillas de cobro"
+  default_prompt: "Usa $grilla-cobros-recaudacion para mejorar la grilla de aplicacion de pagos sin romper reglas de negocio."

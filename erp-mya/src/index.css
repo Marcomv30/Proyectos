@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Quitar spinner de inputs numéricos en todo el proyecto */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Responsive data pattern (desktop table + mobile cards)
+   Reusable for new views:
+   - Wrap desktop table in .rv-desktop-table
+   - Wrap mobile card list in .rv-mobile-cards
+   - Keep cards hidden on desktop, table hidden on mobile
+*/
+.rv-mobile-cards {
+  display: none;
+}
+
+@media (max-width: 620px) {
+  .rv-desktop-table {
+    display: none !important;
+  }
+
+  .rv-mobile-cards {
+    display: block;
+  }
+}
+
+/* Regla universal: valores monetarios alineados a la derecha */
+.money-right {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}

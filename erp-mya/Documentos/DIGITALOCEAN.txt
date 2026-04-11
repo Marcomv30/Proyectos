@@ -1,0 +1,231 @@
+========= SERVIDOR DE DIGITALOCEAN =========
+IP:	45.55.190.88
+ssh root@45.55.190.88
+clave: maVil1959mv
+
+====== abrir aRchivos del VPS ==============
+
+nano /home/mya-backend/.env
+
+
+SINCRONIZAR VPS
+===============
+SUBIR ARCHIVOS:
+--------
+scp d:\Proyectos\erp-mya\server\routes\frontendDeploy.js root@45.55.190.88:/home/mya-backend/routes/frontendDeploy.js
+scp d:\Proyectos\erp-mya\src\pages\Superusuario\SuperusuarioOperaciones.tsx root@45.55.190.88:/home/mya-frontend-src/src/pages/Superusuario/SuperusuarioOperaciones.tsx
+
+cambió backend
+================================
+
+cd /home/mya-backend
+pm2 restart mya-api
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzM1Njg5NjAwLCJleHAiOjIwNTEwNDk2MDB9.ccScvmpMTej-B-sPJxaeyhGTaRrzwkRfgUYmF-S-Xgw
+
+cat > /home/mya-empacadora-src/.env.production <<'EOF'
+PORT=3002
+REACT_APP_SUPABASE_URL=https://supabase.visionzn.net
+REACT_APP_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzM1Njg5NjAwLCJleHAiOjIwNTEwNDk2MDB9.ccScvmpMTej-B-sPJxaeyhGTaRrzwkRfgUYmF-S-Xgw
+REACT_APP_API_URL=https://api.visionzn.net
+BROWSER=none
+EOF
+
+
+
+
+curl -i "https://supabase.visionzn.net/auth/v1/settings" \
+  -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzM1Njg5NjAwLCJleHAiOjIwNTEwNDk2MDB9.ccScvmpMTej-B-sPJxaeyhGTaRrzwkRfgUYmF-S-Xgw"
+
+rebuild/publicación del frontend.
+================================
+cd /home/mya-frontend-src
+NODE_OPTIONS=--max-old-space-size=4096 npm run build
+rsync -av --delete build/ /home/mya-frontend/
+
+curl -i -X GET "https://supabase.visionzn.net/auth/v1/user" \
+  -H "apikey: sb_publishable_Th9CEDrabEqbA6amCp67Cg_UxGGA_fJ" \
+  -H "Authorization: Bearersb_publishable_Th9CEDrabEqbA6amCp67Cg_UxGGA_fJ"
+
+
+
+FHA9AtKyZf3YdR5r
+
+$env:PATH += ";C:\Program Files\PostgreSQL\17\bin"
+pg_dump "postgresql://postgres:"FHA9AtKyZf3YdR5r"@db.deyetzlwobtsowpakdef.supabase.co:5432/postgres" --no-owner --no-acl -Fc -f C:\Users\Ashfo\Desktop\mya_backup.dump
+
+Te va a preguntar si confiás en el servidor → escribí `yes` + Enter.  
+Luego te pide la contraseña que pusiste → escribila (no se ve mientras escribís, es normal).
+
+**Si ves esto, lo lograste:**
+```
+Welcome to Ubuntu 24.04.1 LTS
+root@mya-erp:~#
+
+
+Paso 1 — Actualizar el sistema
+---------------
+apt update && apt upgrade -y
+
+Paso 2 — Instalar herramientas básicas
+--------
+apt install -y curl wget git ufw fail2ban
+
+Paso 3 — Instalar Docker
+-------
+curl -fsSL https://get.docker.com | sh
+
+Paso 4 — Verificar que Docker quedó bien
+--------
+docker --version
+docker compose version
+```
+
+Deberías ver algo como:
+```
+Docker version 27.x.x
+Docker Compose version v2.x.x
+
+
+Paso 1 — Clonar Supabase
+---------
+cd /opt
+git clone --depth 1 https://github.com/supabase/supabase
+cd /opt/supabase/docker
+cp .env.example .env
+
+Paso 2 — Generar los secrets necesarios
+Necesitás 3 valores antes de editar el .env. Ejecutá cada uno y anotá el resultado:
+----------
+# 1. JWT Secret
+openssl rand -base64 32
+
+K3cireiRizyBX6WOVpjJh24JFe9dgO+q3Rz9cM6RX4k=
+
+
+# 2. Postgres password
+-----
+openssl rand -base64 24
+
+9XAhuoFa7r+GFQkL+MH9rD8Pp9Wd+4dc
+
+
+Ahora generamos las API keys JWT. Ejecutá esto:
+---------------
+apt install -y nodejs npm
+
+Cuando termine:
+--------------
+node -e "
+const crypto = require('crypto');
+const header = Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url');
+const anonPayload = Buffer.from(JSON.stringify({role:'anon',iss:'supabase',iat:1735689600,exp:2051049600})).toString('base64url');
+const servicePayload = Buffer.from(JSON.stringify({role:'service_role',iss:'supabase',iat:1735689600,exp:2051049600})).toString('base64url');
+const secret = 'K3cireiRizyBX6WOVpjJh24JFe9dgO+q3Rz9cM6RX4k=';
+const sign = (data) => crypto.createHmac('sha256', secret).update(data).digest('base64url');
+console.log('ANON_KEY=' + header+'.'+anonPayload+'.'+sign(header+'.'+anonPayload));
+console.log('SERVICE_ROLE_KEY=' + header+'.'+servicePayload+'.'+sign(header+'.'+servicePayload));
+"
+
+
+ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzM1Njg5NjAwLCJleHAiOjIwNTEwNDk2MDB9.ccScvmpMTej-B-sPJxaeyhGTaRrzwkRfgUYmF-S-Xgw
+SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3MzU2ODk2MDAsImV4cCI6MjA1MTA0OTYwMH0.Qb3-8Oayyh8lOQoc5P40BOsKV2KP184slvOSf572J9I
+
+
+
+Ahora editamos el .env:
+---------
+nano /opt/supabase/docker/.env
+```
+
+Se abre el editor. Usá **Ctrl+W** para buscar cada valor y reemplazarlo. Los cambios que tenés que hacer son estos:
+
+---
+
+**Buscar `POSTGRES_PASSWORD` y cambiar:**
+```
+POSTGRES_PASSWORD=9XAhuoFa7r+GFQkL+MH9rD8Pp9Wd+4dc
+```
+
+**Buscar `JWT_SECRET` y cambiar:**
+```
+JWT_SECRET=K3cireiRizyBX6WOVpjJh24JFe9dgO+q3Rz9cM6RX4k=
+```
+
+**Buscar `ANON_KEY` y cambiar:**
+```
+ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzM1Njg5NjAwLCJleHAiOjIwNTEwNDk2MDB9.ccScvmpMTej-B-sPJxaeyhGTaRrzwkRfgUYmF-S-Xgw
+```
+
+**Buscar `SERVICE_ROLE_KEY` y cambiar:**
+```
+SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3MzU2ODk2MDAsImV4cCI6MjA1MTA0OTYwMH0.Qb3-8Oayyh8lOQoc5P40BOsKV2KP184slvOSf572J9I
+```
+
+**Buscar `DASHBOARD_PASSWORD` y cambiar:**
+```
+DASHBOARD_PASSWORD=MYAadmin2026!
+
+
+
+sed -i 's|POSTGRES_PASSWORD=your-super-secret-and-long-postgres-password|POSTGRES_PASSWORD=9XAhuoFa7r+GFQkL+MH9rD8Pp9Wd+4dc|g' /opt/supabase/docker/.env
+
+sed -i 's|JWT_SECRET=your-super-secret-jwt-token-with-at-least-32-characters-long|JWT_SECRET=K3cireiRizyBX6WOVpjJh24JFe9dgO+q3Rz9cM6RX4k=|g' /opt/supabase/docker/.env
+
+sed -i 's|DASHBOARD_PASSWORD=this_password_is_insecure_and_should_be_updated|DASHBOARD_PASSWORD=MYAadmin2026!|g' /opt/supabase/docker/.env
+
+Luego verificá que quedó bien:
+-----------
+grep -E "POSTGRES_PASSWORD|JWT_SECRET|DASHBOARD_PASSWORD" /opt/supabase/docker/.env
+
+
+r/
+POSTGRES_PASSWORD=9XAhuoFa7r+GFQkL+MH9rD8Pp9Wd+4dc
+JWT_SECRET=K3cireiRizyBX6WOVpjJh24JFe9dgO+q3Rz9cM6RX4k=
+DASHBOARD_PASSWORD=MYAadmin2026!
+root@ubuntu-s-1vcpu-2gb-nyc1-01:/opt/supabase/docker#
+
+Perfecto, los 3 valores están correctos. Ahora verificamos que las API keys también quedaron bien:
+----------
+grep -E "ANON_KEY|SERVICE_ROLE_KEY" /opt/supabase/docker/.env | head -2
+
+
+r/
+ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE
+SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJzZXJ2aWNlX3JvbGUiLAogICAgImlzcyI6ICJzdXBhYmFzZS1kZW1vIiwKICAgICJpYXQiOiAxNjQxNzY5MjAwLAogICAgImV4cCI6IDE3OTk1MzU2MDAKfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q
+
+
+Esas son las keys demo por defecto — no se actualizaron con las que generamos. Las reemplazamos ahora:
+---------
+sed -i "s|ANON_KEY=.*|ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzM1Njg5NjAwLCJleHAiOjIwNTEwNDk2MDB9.ccScvmpMTej-B-sPJxaeyhGTaRrzwkRfgUYmF-S-Xgw|g" /opt/supabase/docker/.env
+
+sed -i "s|SERVICE_ROLE_KEY=.*|SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3MzU2ODk2MDAsImV4cCI6MjA1MTA0OTYwMH0.Qb3-8Oayyh8lOQoc5P40BOsKV2KP184slvOSf572J9I|g" /opt/supabase/docker/.env
+
+
+Verificá:
+---------
+grep -E "ANON_KEY|SERVICE_ROLE_KEY" /opt/supabase/docker/.env | head -2
+
+r/
+ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzM1Njg5NjAwLCJleHAiOjIwNTEwNDk2MDB9.ccScvmpMTej-B-sPJxaeyhGTaRrzwkRfgUYmF-S-Xgw
+SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3MzU2ODk2MDAsImV4cCI6MjA1MTA0OTYwMH0.Qb3-8Oayyh8lOQoc5P40BOsKV2KP184slvOSf572J9I
+
+Perfecto, todas las keys correctas. Ahora levantamos Supabase:
+--------
+cd /opt/supabase/docker && docker compose up -d
+
+Esto descarga todas las imágenes Docker de Supabase. Tarda 3-5 minutos la primera vez. Vas a ver mucho texto pasando — es normal.
+
+
+Cuando vuelva el prompt, ejecutá:
+---------------------------------
+docker compose ps
+r/
+
+
+
+
+
+
+
+
+

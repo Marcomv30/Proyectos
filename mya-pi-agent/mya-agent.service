@@ -1,0 +1,17 @@
+[Unit]
+Description=MYA Agent — Lector HID
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/mya-agent.env
+ExecStart=/usr/bin/python3 /usr/local/bin/mya_agent.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+User=root
+
+[Install]
+WantedBy=multi-user.target
