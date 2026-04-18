@@ -5,6 +5,8 @@ import {
   BadgeCheck,
   Cable,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Clock,
   DollarSign,
@@ -56,10 +58,20 @@ type LoginState = {
 
 type FusionStatus = {
   ok?: boolean;
+  // Campos legacy (por compatibilidad)
   running?: boolean;
   connected?: boolean;
   sync_running?: boolean;
+  // Campos reales del endpoint /api/combustible/status
+  instancia_activa?: boolean;
+  instancia_saludable?: boolean;
+  sync_estado?: string;        // 'pg' | 'http' | 'disconnected'
+  sync_en_curso?: boolean;
+  active_tunnel_port?: number | null;
   ultima_sync?: string | null;
+  ultima_ejecucion?: string | null;
+  ultimo_error_sync?: string | null;
+  // Otros
   tunnel_ok?: boolean;
   tcp_ok?: boolean;
   ws_port?: number | null;
@@ -3088,7 +3100,7 @@ function LoginPage({ onReady }: { onReady: (payload: LoginState) => void }) {
       const esSuperusuario = Boolean(data.usuario?.es_superusuario);
 
       if (!nextSession.access_token || !nextSession.refresh_token) {
-        setError('La respuesta de autenticacion no incluyo una sesion valida.');
+        setError('La respuesta de autenticación no incluyó una sesión válida.');
         return;
       }
       if (!foundEmpresas.length) {
@@ -3105,7 +3117,7 @@ function LoginPage({ onReady }: { onReady: (payload: LoginState) => void }) {
       setTempEsSuperusuario(esSuperusuario);
       setEmpresas(foundEmpresas);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo iniciar sesion.');
+      setError(err instanceof Error ? err.message : 'No se pudo iniciar sesión.');
     } finally {
       setLoading(false);
     }
@@ -3325,6 +3337,7 @@ function AppShell({
 }) {
   const [route, setRoute] = useState<RouteKey>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [snapshot, setSnapshot] = useState<ConsolaSnapshot>({
     status: null,
     ventas: [],
@@ -3386,7 +3399,9 @@ function AppShell({
   }, [login.esSuperusuario, route]);
 
   const fusionActiva = Boolean(
-    snapshot.status?.running || snapshot.status?.connected || snapshot.status?.sync_running,
+    snapshot.status?.instancia_activa ||
+    snapshot.status?.sync_en_curso ||
+    (snapshot.status?.sync_estado && snapshot.status.sync_estado !== 'disconnected'),
   );
 
   function navigate(key: RouteKey) {
@@ -3431,13 +3446,8 @@ function AppShell({
           </div>
         </div>
 
-        {/* Derecha: fusion status + refresh + usuario + salir */}
+        {/* Derecha: refresh + usuario + salir */}
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
-            <span className={`h-2 w-2 rounded-full ${fusionActiva ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-            <span className="hidden sm:inline">{fusionActiva ? 'Fusion' : 'En espera'}</span>
-          </div>
-
           <button
             className="rounded p-1 text-slate-500 transition hover:text-slate-200"
             onClick={cargarSnapshot}
@@ -3477,36 +3487,59 @@ function AppShell({
 
         {/* Sidebar */}
         <aside
-          className={`fixed left-0 top-[44px] z-30 flex h-[calc(100vh-44px)] w-[17rem] max-w-[86vw] flex-col border-r border-slate-800 bg-slate-900 transition-transform duration-200
+          className={`fixed left-0 top-[44px] z-30 flex h-[calc(100vh-44px)] max-w-[86vw] flex-col border-r border-slate-800 bg-slate-900 transition-all duration-200
             ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
             md:static md:z-auto md:h-auto md:translate-x-0`}
+          style={{ width: sidebarCollapsed ? '3.5rem' : '17rem' }}
         >
           {/* Marca */}
-          <div className="border-b border-slate-800 px-4 py-3">
-            <div className="text-[10px] uppercase tracking-[0.3em] text-slate-600">Consola Fusion</div>
-            <div className="mt-0.5 text-xs font-semibold text-slate-300">{login.empresaNombre}</div>
-            <div className="mt-1 flex items-center gap-1.5">
-              <span className={`h-1.5 w-1.5 rounded-full ${fusionActiva ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-              <span className="text-[10px] text-slate-500">
-                {fusionActiva
-                  ? `Activo · sync ${fmtDateTime(snapshot.status?.ultima_sync as string | null)}`
-                  : 'Fusion en espera'}
-              </span>
-            </div>
+          <div className={`relative border-b border-slate-800 ${sidebarCollapsed ? 'px-0 py-3 flex flex-col items-center' : 'px-4 py-3'}`}>
+            {!sidebarCollapsed && (
+              <>
+                <div className="text-[10px] uppercase tracking-[0.3em] text-slate-600">Consola Fusion</div>
+                <div className="mt-0.5 text-xs font-semibold text-slate-300">{login.empresaNombre}</div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span className={`h-1.5 w-1.5 rounded-full ${fusionActiva ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                  <span className="text-[10px] text-slate-500">
+                    {fusionActiva
+                      ? `Activo · sync ${fmtDateTime(snapshot.status?.ultima_sync as string | null)}`
+                      : 'Fusion en espera'}
+                  </span>
+                </div>
+              </>
+            )}
+            {sidebarCollapsed && (
+              <span className={`h-2 w-2 rounded-full ${fusionActiva ? 'bg-emerald-400' : 'bg-amber-400'}`} title={fusionActiva ? 'Fusion activo' : 'Fusion en espera'} />
+            )}
+            {/* Botón toggle — solo en desktop */}
+            <button
+              className="absolute -right-3 top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center rounded-full border border-slate-700 bg-slate-900 p-0.5 text-slate-500 transition hover:text-slate-200 md:flex"
+              onClick={() => setSidebarCollapsed((c) => !c)}
+              type="button"
+              title={sidebarCollapsed ? 'Expandir menú' : 'Colapsar menú'}
+            >
+              {sidebarCollapsed
+                ? <ChevronRight className="h-3 w-3" />
+                : <ChevronLeft className="h-3 w-3" />}
+            </button>
           </div>
 
           {/* Nav */}
-          <nav className="flex-1 overflow-y-auto px-2 py-3">
-            <div className="mb-1 px-3 text-[10px] uppercase tracking-[0.3em] text-slate-600">
-              Operacion
-            </div>
+          <nav className={`flex-1 overflow-y-auto py-3 ${sidebarCollapsed ? 'px-1' : 'px-2'}`}>
+            {!sidebarCollapsed && (
+              <div className="mb-1 px-3 text-[10px] uppercase tracking-[0.3em] text-slate-600">
+                Operacion
+              </div>
+            )}
+            {sidebarCollapsed && <div className="mb-1 border-b border-slate-800/60 mx-1" />}
             {OPERATIONS_MENU.map((item) => {
               const Icon = item.icon;
               const active = item.key === route;
               return (
                 <button
                   key={item.key}
-                  className="mb-0.5 flex w-full items-center gap-2.5 rounded px-3 py-2 text-left text-xs font-medium transition-colors"
+                  className={`mb-0.5 flex w-full items-center rounded text-xs font-medium transition-colors
+                    ${sidebarCollapsed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-3 py-2'}`}
                   style={{
                     color: active ? '#6ee7b7' : '#94a3b8',
                     background: active ? 'rgba(16,185,129,0.10)' : 'transparent',
@@ -3514,25 +3547,30 @@ function AppShell({
                   }}
                   onClick={() => navigate(item.key)}
                   type="button"
+                  title={sidebarCollapsed ? item.label : undefined}
                 >
-                  <Icon className="h-3.5 w-3.5 shrink-0" />
-                  {item.label}
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {!sidebarCollapsed && item.label}
                 </button>
               );
             })}
 
             {login.esSuperusuario ? (
               <>
-                <div className="mb-1 mt-4 px-3 text-[10px] uppercase tracking-[0.3em] text-slate-600">
-                  Administracion
-                </div>
+                {!sidebarCollapsed && (
+                  <div className="mb-1 mt-4 px-3 text-[10px] uppercase tracking-[0.3em] text-slate-600">
+                    Administracion
+                  </div>
+                )}
+                {sidebarCollapsed && <div className="my-2 border-b border-slate-800/60 mx-1" />}
                 {ADMIN_MENU.map((item) => {
                   const Icon = item.icon;
                   const active = item.key === route;
                   return (
                     <button
                       key={item.key}
-                      className="mb-0.5 flex w-full items-center gap-2.5 rounded px-3 py-2 text-left text-xs font-medium transition-colors"
+                      className={`mb-0.5 flex w-full items-center rounded text-xs font-medium transition-colors
+                        ${sidebarCollapsed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-3 py-2'}`}
                       style={{
                         color: active ? '#93c5fd' : '#94a3b8',
                         background: active ? 'rgba(59,130,246,0.10)' : 'transparent',
@@ -3540,9 +3578,10 @@ function AppShell({
                       }}
                       onClick={() => navigate(item.key)}
                       type="button"
+                      title={sidebarCollapsed ? item.label : undefined}
                     >
-                      <Icon className="h-3.5 w-3.5 shrink-0" />
-                      {item.label}
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {!sidebarCollapsed && item.label}
                     </button>
                   );
                 })}
@@ -3551,17 +3590,21 @@ function AppShell({
           </nav>
 
           {/* Footer sidebar */}
-          <div className="border-t border-slate-800 px-4 py-3">
-            <div className="text-[10px] text-slate-600">
-              {login.esSuperusuario ? 'Administrador' : 'Operador'} · {login.usuarioNombre}
-            </div>
+          <div className={`border-t border-slate-800 ${sidebarCollapsed ? 'flex flex-col items-center px-0 py-3 gap-2' : 'px-4 py-3'}`}>
+            {!sidebarCollapsed && (
+              <div className="text-[10px] text-slate-600">
+                {login.esSuperusuario ? 'Administrador' : 'Operador'} · {login.usuarioNombre}
+              </div>
+            )}
             <button
-              className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-500 transition hover:text-rose-400"
+              className={`flex items-center text-slate-500 transition hover:text-rose-400
+                ${sidebarCollapsed ? 'justify-center p-1.5' : 'mt-2 gap-1.5 text-[11px]'}`}
               onClick={onLogout}
               type="button"
+              title={sidebarCollapsed ? 'Cerrar sesión' : undefined}
             >
-              <LogOut className="h-3 w-3" />
-              Cerrar sesion
+              <LogOut className="h-3.5 w-3.5" />
+              {!sidebarCollapsed && 'Cerrar sesion'}
             </button>
           </div>
         </aside>
