@@ -25,3 +25,11 @@ Thumbs.db
 .claude/
 Datos.txt
 **/.env*
+
+# Workspace local (no versionar)
+/CLAVES-SUPABASE-ERP.txt
+/GITHUB.txt
+/SUBIR ARCHIVOS A VPS.txt
+/======== SUPABASE PARA FARMACIAS ==.txt
+/WebODM/
+/empacadora/scripts/test-dcim/
