@@ -2172,6 +2172,23 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
     </div>
   )
 
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('combustible:facturacion-view', { detail: { view } }))
+  }, [view])
+
+  useEffect(() => {
+    const onRefrescar = () => { void loadVentas() }
+    const onFacturar = () => {
+      if (!loading && ventasAFacturar.length && draft) abrirVistaBorrador()
+    }
+    window.addEventListener('combustible:facturacion-refrescar', onRefrescar)
+    window.addEventListener('combustible:facturacion-facturar', onFacturar)
+    return () => {
+      window.removeEventListener('combustible:facturacion-refrescar', onRefrescar)
+      window.removeEventListener('combustible:facturacion-facturar', onFacturar)
+    }
+  }, [loadVentas, abrirVistaBorrador, loading, ventasAFacturar.length, draft])
+
   if (previewDocId !== null) {
     return <FacturaPreviewModal docId={previewDocId} empresaId={empresaId} onClose={() => setPreviewDocId(null)} />
   }
@@ -2179,13 +2196,6 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
   const facturacionMain = (
     <div>
       <WorkspaceMainPanel>
-        {ventasAFacturar.length && draft ? (
-          <div className="comb-fact-next-step" style={{ justifyContent: 'flex-end' }}>
-            <button type="button" className="comb-fact-btn primary" disabled={loading} onClick={abrirVistaBorrador}>
-              FACTURAR
-            </button>
-          </div>
-        ) : null}
         {loading ? (
           <div className="comb-fact-empty">Cargando ventas desde Fusion...</div>
         ) : ventasFiltradas.length === 0 ? (
@@ -2468,45 +2478,7 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
   return (
     <div className="comb-fact-wrap" style={{ padding: 18 }}>
       <style>{STYLES}</style>
-      {view !== 'borrador' ? (
-      <div style={{ display: 'flex', gap: 12, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
-        {false && <div className="comb-fact-field" style={{ marginBottom: 0, minWidth: 160 }}>
-          <input
-            type="date"
-            className="comb-fact-input"
-            value={fecha}
-            onChange={(e) => setFecha(e.target.value)}
-          />
-        </div>}
-        {false && <div className="comb-fact-field" style={{ marginBottom: 0, minWidth: 260 }}>
-          <select
-            className="comb-fact-select"
-            value={turnoId ?? ''}
-            onChange={(e) => setTurnoId(e.target.value ? Number(e.target.value) : null)}
-            disabled={turnosLoading || turnos.length === 0}
-          >
-            {turnosLoading && <option>Cargando turnos...</option>}
-            {!turnosLoading && turnos.length === 0 && <option>Sin turnos para esta fecha</option>}
-            {turnos.map((t) => (
-              <option key={t.period_id} value={t.period_id}>
-                Turno #{t.period_id} · {t.period_status} · {dateTime(t.start_at)}
-              </option>
-            ))}
-          </select>
-        </div>}
-        <button
-          type="button"
-          className="comb-fact-btn secondary"
-          disabled={loading}
-          onClick={() => { void loadVentas() }}
-        >
-          Refrescar ventas
-        </button>
-      </div>
-      ) : null}
-
       {error ? <div className="comb-fact-warning" style={{ marginBottom: 14 }}>{error}</div> : null}
-      {ok && view !== 'borrador' ? <div className="comb-fact-ok" style={{ marginBottom: 14 }}>{ok}</div> : null}
 
       {view === 'borrador' ? draftWorkspace : facturacionMain}
 
