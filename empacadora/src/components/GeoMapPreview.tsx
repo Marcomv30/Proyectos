@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import L from 'leaflet';
 import { CircleMarker, GeoJSON, MapContainer, Polygon, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import type { LatLngBoundsExpression } from 'leaflet';
+
+export interface OverlayLayer {
+  geojson: any;
+  color: string;
+  flashing?: boolean;
+}
 
 function closeLineRing(coords: any) {
   if (!Array.isArray(coords) || coords.length < 3) return null;
@@ -123,41 +130,73 @@ function FitToBounds({ bounds }: { bounds: LatLngBoundsExpression | null }) {
 function DraftCapture({
   enabled,
   onPointAdd,
+  onClose,
 }: {
   enabled: boolean;
   onPointAdd: (lat: number, lng: number) => void;
+  onClose: () => void;
 }) {
   useMapEvents({
     click(event) {
       if (!enabled) return;
       onPointAdd(event.latlng.lat, event.latlng.lng);
     },
+    dblclick(event) {
+      if (!enabled) return;
+      // Doble clic cierra el polígono (sin agregar punto extra)
+      onClose();
+    },
   });
+  return null;
+}
+
+function FlyToFlashing({ overlays, flashKey }: { overlays?: OverlayLayer[]; flashKey?: string | number }) {
+  const map = useMap();
+  useEffect(() => {
+    if (flashKey === undefined || flashKey === null || !overlays) return;
+    const flashing = overlays.find(o => o.flashing);
+    if (!flashing) return;
+    const geom = getGeojsonGeometry(flashing.geojson);
+    if (!geom) return;
+    const pts = collectPoints(geom.coordinates);
+    if (!pts.length) return;
+    try {
+      const bounds = L.latLngBounds(pts as [number, number][]).pad(0.35);
+      map.flyToBounds(bounds, { animate: true, duration: 0.5, maxZoom: 20 });
+    } catch { /* bounds inválidos */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flashKey]);
   return null;
 }
 
 type Props = {
   geojson?: any;
   gps?: { lat: number; lng: number; precision?: number } | null;
-  height?: number;
+  height?: number | string;
   maxWidthClassName?: string;
   polygonColor?: string;
   editable?: boolean;
   onDrawCommit?: (geojson: any | null) => void;
   onRequestExpand?: () => void;
+  overlays?: OverlayLayer[];
+  flashKey?: string | number;
+  drawResetKey?: number;
 };
 
 export default function GeoMapPreview({
   geojson,
   gps = null,
-  height = 220,
+  height = 220 as number | string,
   maxWidthClassName = 'max-w-[260px]',
   polygonColor = '#4ade80',
   editable = false,
   onDrawCommit,
   onRequestExpand,
+  overlays,
+  flashKey,
+  drawResetKey,
 }: Props) {
-  const [layer, setLayer] = useState<'map' | 'satellite'>('map');
+  const [layer, setLayer] = useState<'map' | 'satellite'>('satellite');
   const [draftCoords, setDraftCoords] = useState<Array<[number, number]>>([]);
   const geometry = useMemo(() => getGeojsonGeometry(geojson), [geojson]);
 
@@ -166,13 +205,21 @@ export default function GeoMapPreview({
     setDraftCoords(getPolygonDraftCoordinates(geojson));
   }, [editable, geojson]);
 
+  // Limpia el borrador cuando cambia drawResetKey (sin remontar el mapa)
+  useEffect(() => {
+    if (drawResetKey === undefined) return;
+    setDraftCoords([]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawResetKey]);
+
   const previewGeojson = useMemo(
     () => (draftCoords.length >= 3 ? polygonGeojsonFromDraft(draftCoords) : geojson),
     [draftCoords, geojson]
   );
   const bounds = useMemo(() => computeBounds(previewGeojson, gps, draftCoords), [previewGeojson, gps, draftCoords]);
 
-  if (!geometry && !gps && !draftCoords.length) {
+  // Sin datos y sin modo edición: placeholder
+  if (!geometry && !gps && !draftCoords.length && !editable) {
     return (
       <div
         className={`flex w-full ${maxWidthClassName} items-center justify-center rounded-lg border border-dashed`}
@@ -183,9 +230,16 @@ export default function GeoMapPreview({
     );
   }
 
+  // Cuando height='100%' usamos flex column para que la toolbar no ocupe
+  // espacio del mapa y éste rellene el resto disponible.
+  const isFull = height === '100%';
+
   return (
-    <div className={`w-full ${maxWidthClassName}`}>
-      <div className="mb-2 flex flex-wrap items-center gap-2">
+    <div
+      className={`w-full ${maxWidthClassName}`}
+      style={isFull ? { height: '100%', display: 'flex', flexDirection: 'column' } : {}}
+    >
+      <div className="mb-2 flex flex-wrap items-center gap-2" style={isFull ? { flexShrink: 0 } : {}}>
         <div className="inline-flex rounded-lg border border-line bg-surface-overlay p-1">
           <button
             type="button"
@@ -252,19 +306,23 @@ export default function GeoMapPreview({
       </div>
 
       {editable && (
-        <p className="mb-2 text-[11px] text-gray-500">
-          Haga clic sobre el mapa para marcar vertices. Con 3 o mas puntos puede guardar el poligono.
+        <p className="mb-2 text-[11px] text-gray-500" style={isFull ? { flexShrink: 0 } : {}}>
+          Clic en el mapa para marcar vértices · doble clic para cerrar · con 3+ puntos presioná "Usar polígono".
         </p>
       )}
 
       <div
         className="overflow-hidden rounded-lg border"
-        style={{ height, borderColor: 'var(--line)', background: 'var(--surface-overlay)' }}
+        style={
+          isFull
+            ? { flex: 1, minHeight: 0, borderColor: 'var(--line)', background: 'var(--surface-overlay)' }
+            : { height, borderColor: 'var(--line)', background: 'var(--surface-overlay)' }
+        }
       >
         <MapContainer
           center={gps ? [gps.lat, gps.lng] : [10.68838, -84.86049]}
           zoom={17}
-          scrollWheelZoom={false}
+          scrollWheelZoom={true}
           style={{ height: '100%', width: '100%' }}
         >
           <TileLayer
@@ -279,6 +337,7 @@ export default function GeoMapPreview({
           <DraftCapture
             enabled={editable}
             onPointAdd={(lat, lng) => setDraftCoords((coords) => [...coords, [lat, lng]])}
+            onClose={() => onDrawCommit?.(polygonGeojsonFromDraft(draftCoords))}
           />
 
           {draftCoords.length >= 3 ? (
@@ -316,6 +375,23 @@ export default function GeoMapPreview({
               ))}
             </>
           )}
+
+          {/* Overlays de bloques / zonas externas */}
+          {overlays?.map((o, i) => (
+            <GeoJSON
+              key={`overlay-${i}-${o.flashing}`}
+              data={o.geojson}
+              style={() => ({
+                color: o.color,
+                weight: o.flashing ? 5 : 2,
+                fillColor: o.color,
+                fillOpacity: o.flashing ? 0.5 : 0.18,
+                opacity: o.flashing ? 1 : 0.75,
+              })}
+            />
+          ))}
+
+          <FlyToFlashing overlays={overlays} flashKey={flashKey} />
 
           {gps && (
             <CircleMarker

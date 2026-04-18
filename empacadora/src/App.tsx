@@ -2,10 +2,10 @@ import React, { useEffect, useState } from 'react';
 import DashboardEmpacadora from './pages/dashboard/DashboardEmpacadora';
 import { Session } from '@supabase/supabase-js';
 import {
-  LayoutDashboard, Settings, ChevronDown, ChevronRight,
+  LayoutDashboard, Settings, ChevronDown, ChevronRight, ChevronLeft,
   Ruler, Users, MapPin, Package, Menu, X, LogOut,
   Leaf, Tag, Truck, Calendar, Inbox, ClipboardList, Anchor, Box, Container, Building2,
-  Warehouse, PackageOpen
+  Warehouse, PackageOpen, ScanLine, Layers, LayoutGrid
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { EmpresaProvider } from './context/EmpresaContext';
@@ -19,8 +19,15 @@ import TransportistasList from './pages/configuracion/TransportistasList';
 import DestinosList from './pages/configuracion/DestinosList';
 import ClientesList from './pages/configuracion/ClientesList';
 import BodegasList from './pages/configuracion/BodegasList';
+import MaterialesPaleta from './pages/configuracion/MaterialesPaleta';
 import ConfigGeneral from './pages/configuracion/ConfigGeneral';
+import DronImporter from './pages/configuracion/DronImporter';
+import DronMosaico from './pages/configuracion/DronMosaico';
+import DronMosaicoLab from './pages/configuracion/DronMosaicoLab';
 import InventarioMateriales from './pages/inventario/InventarioMateriales';
+import DisponibilidadMateriales from './pages/inventario/DisponibilidadMateriales';
+import LiquidacionIP from './pages/inventario/LiquidacionIP';
+import ReporteProduccion from './pages/reportes/ReporteProduccion';
 import SemanasList from './pages/recepcion/SemanasList';
 import RecepcionesList from './pages/recepcion/RecepcionesList';
 import ProgramasList from './pages/programa/ProgramasList';
@@ -188,7 +195,11 @@ const MENU: MenuItem[] = [
       { id: 'config.clientes', label: 'Clientes',             route: 'config.clientes',         icon: <Building2 size={16} /> },
       { id: 'config.destinos', label: 'Destinos',             route: 'config.destinos',         icon: <Anchor size={16} /> },
       { id: 'config.bodegas', label: 'Bodegas',              route: 'config.bodegas',          icon: <Warehouse size={16} /> },
+      { id: 'config.materiales_paleta', label: 'Mat. por Paleta', route: 'config.materiales_paleta', icon: <Layers size={16} /> },
       { id: 'config.general', label: 'Configuracion General', route: 'config.general',          icon: <Settings size={16} /> },
+      { id: 'config.dron',             label: 'Dron → Polígono',    route: 'config.dron',             icon: <ScanLine size={16} /> },
+      { id: 'config.dron_mosaico',     label: 'Dron → Mosaico',     route: 'config.dron_mosaico',     icon: <LayoutGrid size={16} /> },
+      { id: 'config.dron_mosaico_lab', label: 'Dron → Mosaico Lab', route: 'config.dron_mosaico_lab', icon: <LayoutGrid size={16} /> },
     ],
   },
   {
@@ -196,7 +207,17 @@ const MENU: MenuItem[] = [
     label: 'Inventario',
     icon: <PackageOpen size={18} />,
     children: [
-      { id: 'inventario.materiales', label: 'Materiales', route: 'inventario.materiales', icon: <Package size={16} /> },
+      { id: 'inventario.materiales',      label: 'Materiales',      route: 'inventario.materiales',      icon: <Package size={16} /> },
+      { id: 'inventario.disponibilidad',  label: 'Disponibilidad',  route: 'inventario.disponibilidad',  icon: <PackageOpen size={16} /> },
+      { id: 'inventario.liquidacion',     label: 'Liquidación IP',  route: 'inventario.liquidacion',     icon: <Box size={16} /> },
+    ],
+  },
+  {
+    id: 'reportes',
+    label: 'Reportes',
+    icon: <ClipboardList size={18} />,
+    children: [
+      { id: 'reportes.produccion', label: 'Producción Diaria', route: 'reportes.produccion', icon: <ClipboardList size={16} /> },
     ],
   },
 ];
@@ -216,7 +237,11 @@ const ROUTE_PARENT_FALLBACK: Partial<Record<AppRoute, AppRoute>> = {
   'config.clientes': 'dashboard',
   'config.destinos': 'dashboard',
   'config.bodegas': 'dashboard',
+  'config.materiales_paleta': 'dashboard',
   'config.general': 'dashboard',
+  'config.dron':              'dashboard',
+  'config.dron_mosaico':      'dashboard',
+  'config.dron_mosaico_lab':  'dashboard',
   'inventario.materiales': 'dashboard',
 };
 
@@ -625,6 +650,7 @@ export default function App() {
   const [activeRoute, setActiveRoute] = useState<AppRoute>('dashboard');
   const [routeHistory, setRouteHistory] = useState<AppRoute[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['Programa', 'Recepcion', 'Configuracion']);
   const [paletteId, setPaletteId] = useState<string>(() => {
     const saved = localStorage.getItem(THEME_KEY) || '';
@@ -731,9 +757,16 @@ export default function App() {
       case 'config.destinos':         return <DestinosList />;
       case 'config.clientes':         return <ClientesList />;
       case 'config.bodegas':          return <BodegasList />;
+      case 'config.materiales_paleta': return <MaterialesPaleta />;
       case 'config.general':          return <ConfigGeneral />;
-      case 'inventario.materiales':   return <InventarioMateriales />;
-      default:                        return <Dashboard />;
+      case 'config.dron':             return <DronImporter />;
+      case 'config.dron_mosaico':     return <DronMosaico />;
+      case 'config.dron_mosaico_lab': return <DronMosaicoLab />;
+      case 'inventario.materiales':     return <InventarioMateriales />;
+      case 'inventario.disponibilidad': return <DisponibilidadMateriales />;
+      case 'inventario.liquidacion':    return <LiquidacionIP />;
+      case 'reportes.produccion':       return <ReporteProduccion />;
+      default:                          return <Dashboard />;
     }
   }
 
@@ -748,7 +781,7 @@ export default function App() {
   // Layout con sidebar y navbar superior
   return (
     <EmpresaProvider empresaId={empresaId}>
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--emp-bg-main)' }}>
+    <div className="h-screen flex flex-col overflow-hidden" style={{ backgroundColor: 'var(--emp-bg-main)' }}>
 
       
       <header className="flex items-center justify-between gap-2 px-3 sm:px-4 shrink-0 sticky top-0 z-40"
@@ -810,57 +843,108 @@ export default function App() {
         )}
 
         {/* Sidebar */}
-        <aside className={`
-          fixed top-[44px] left-0 h-[calc(100vh-44px)] w-56 z-30 flex flex-col
-          transform transition-transform duration-200
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-          md:translate-x-0 md:static md:h-auto md:z-auto
-        `} style={{ backgroundColor: 'var(--emp-bg-panel)', borderRight: '1px solid var(--emp-border)' }}>
-
+        <aside
+          className={`
+            fixed top-[44px] left-0 h-[calc(100vh-44px)] z-30 flex flex-col
+            transform transition-all duration-200
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+            md:translate-x-0 md:static md:h-auto md:z-auto
+          `}
+          style={{
+            width: sidebarCollapsed ? '3.5rem' : '14rem',
+            backgroundColor: 'var(--emp-bg-panel)',
+            borderRight: '1px solid var(--emp-border)',
+          }}
+        >
           {/* Marca */}
-          <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--emp-border)' }}>
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center text-xs font-black tracking-[0.18em]"
-                style={{ backgroundColor: 'var(--emp-accent-bg)', border: '1px solid var(--emp-accent)' }}>
-                <span style={{ color: 'var(--emp-accent-txt)' }}>PE</span>
-              </div>
+          <div
+            className={`relative flex items-center py-3 ${sidebarCollapsed ? 'justify-center px-0' : 'gap-2.5 px-4'}`}
+            style={{ borderBottom: '1px solid var(--emp-border)' }}
+          >
+            <div
+              className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center text-xs font-black tracking-[0.18em]"
+              style={{ backgroundColor: 'var(--emp-accent-bg)', border: '1px solid var(--emp-accent)' }}
+              title={sidebarCollapsed ? (nombrePlanta || 'Empacadora') : undefined}
+            >
+              <span style={{ color: 'var(--emp-accent-txt)' }}>PE</span>
+            </div>
+            {!sidebarCollapsed && (
               <div>
                 <p className="font-semibold text-xs leading-tight" style={{ color: '#d8e3ef' }}>{nombrePlanta || 'Empacadora'}</p>
                 <p className="text-[10px]" style={{ color: '#3a526a' }}>Planta empacadora</p>
               </div>
-            </div>
+            )}
+            {/* Botón toggle — solo desktop */}
+            <button
+              className="absolute -right-3 top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center rounded-full border p-0.5 transition md:flex"
+              style={{ backgroundColor: 'var(--emp-bg-panel)', borderColor: 'var(--emp-border)', color: 'var(--ink-muted)' }}
+              onClick={() => setSidebarCollapsed(c => !c)}
+              type="button"
+              title={sidebarCollapsed ? 'Expandir menú' : 'Colapsar menú'}
+            >
+              {sidebarCollapsed
+                ? <ChevronRight size={12} />
+                : <ChevronLeft size={12} />}
+            </button>
           </div>
 
           {/* Nav */}
-          <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+          <nav className={`flex-1 overflow-y-auto py-3 space-y-0.5 ${sidebarCollapsed ? 'px-1' : 'px-2'}`}>
             {sidebarMenu.map(item => {
               if (!item.children) {
                 const active = activeRoute === item.route;
                 return (
-                  <button key={item.label} onClick={() => navigate(item.route!)}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded text-xs font-medium transition-colors text-left"
+                  <button
+                    key={item.label}
+                    onClick={() => navigate(item.route!)}
+                    title={sidebarCollapsed ? item.label : undefined}
+                    className={`w-full flex items-center rounded text-xs font-medium transition-colors text-left
+                      ${sidebarCollapsed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-3 py-2'}`}
                     style={{
                       color:      active ? 'var(--emp-accent-txt)' : 'var(--ink-muted)',
                       background: active ? 'var(--emp-accent-bg)' : 'transparent',
                       borderLeft: active ? `2px solid var(--emp-accent)` : '2px solid transparent',
-                    }}>
-                    {item.icon}{item.label}
+                    }}
+                  >
+                    {item.icon}
+                    {!sidebarCollapsed && item.label}
                   </button>
                 );
               }
 
-              const expanded     = isGroupExpanded(item.label);
+              const expanded      = isGroupExpanded(item.label);
               const isChildActive = item.children.some(c => c.route === activeRoute);
+
+              // Colapsado: mostrar solo ícono del grupo con tooltip; navega al primer hijo
+              if (sidebarCollapsed) {
+                return (
+                  <button
+                    key={item.label}
+                    onClick={() => navigate(item.children![0].route)}
+                    title={item.label}
+                    className="w-full flex justify-center items-center px-0 py-2.5 rounded text-xs font-medium transition-colors"
+                    style={{
+                      color:      isChildActive ? 'var(--emp-accent-txt)' : 'var(--ink-muted)',
+                      background: isChildActive ? 'var(--emp-accent-bg)' : 'transparent',
+                      borderLeft: isChildActive ? `2px solid var(--emp-accent)` : '2px solid transparent',
+                    }}
+                  >
+                    {item.icon}
+                  </button>
+                );
+              }
 
               return (
                 <div key={item.label}>
-                  <button onClick={() => toggleGroup(item.label)}
+                  <button
+                    onClick={() => toggleGroup(item.label)}
                     className="w-full flex items-center gap-2.5 px-3 py-2 rounded text-xs font-medium transition-colors"
                     style={{
                       color:      isChildActive ? 'var(--emp-accent-txt)' : 'var(--ink-muted)',
                       background: isChildActive ? 'var(--emp-accent-bg)' : 'transparent',
                       borderLeft: isChildActive ? `2px solid var(--emp-accent)` : '2px solid transparent',
-                    }}>
+                    }}
+                  >
                     {item.icon}
                     <span className="flex-1 text-left">{item.label}</span>
                     {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -870,13 +954,16 @@ export default function App() {
                       {item.children.map(child => {
                         const active = activeRoute === child.route;
                         return (
-                          <button key={child.route} onClick={() => navigate(child.route)}
+                          <button
+                            key={child.route}
+                            onClick={() => navigate(child.route)}
                             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-[11px] font-medium transition-colors text-left"
                             style={{
                               color:      active ? 'var(--emp-accent-txt)' : 'var(--ink-muted)',
                               background: active ? 'var(--emp-accent-bg)' : 'transparent',
                               borderLeft: active ? `2px solid var(--emp-accent)` : '2px solid transparent',
-                            }}>
+                            }}
+                          >
                             {child.icon}{child.label}
                           </button>
                         );
@@ -889,38 +976,42 @@ export default function App() {
           </nav>
         </aside>
 
-        {/* Contenido */}
-        <div className="flex-1 overflow-auto">
-          <main>
-            {showBackButton && (
-              <div className="px-4 sm:px-6 pt-4 pb-1">
-                <button
-                  onClick={handleBack}
-                  className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
-                  style={{
-                    borderColor: 'var(--emp-border)',
-                    backgroundColor: 'var(--emp-bg-panel)',
-                    color: 'var(--ink-muted)',
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.color = 'var(--emp-accent-txt)';
-                    e.currentTarget.style.borderColor = 'var(--emp-accent)';
-                    e.currentTarget.style.backgroundColor = 'var(--emp-accent-bg)';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.color = 'var(--ink-muted)';
-                    e.currentTarget.style.borderColor = 'var(--emp-border)';
-                    e.currentTarget.style.backgroundColor = 'var(--emp-bg-panel)';
-                  }}
-                >
-                  <span aria-hidden="true">&larr;</span>
-                  <span>Volver</span>
-                  <span className="hidden sm:inline" style={{ color: 'var(--ink-faint)' }}>
-                    a {currentRouteMeta.parentLabel}
-                  </span>
-                </button>
-              </div>
-            )}
+        {/* Contenido
+            flex-col + min-h-0 propaga la altura al page activo.
+            El botón Volver es shrink-0; <main> ocupa el resto con overflow-auto
+            para que las páginas de tablas scrolleen normalmente. Las páginas
+            de mapa (DronMosaico, DronImporter) usan height:100% y quedan bien. */}
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {showBackButton && (
+            <div className="px-4 sm:px-6 pt-4 pb-1 flex-shrink-0">
+              <button
+                onClick={handleBack}
+                className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
+                style={{
+                  borderColor: 'var(--emp-border)',
+                  backgroundColor: 'var(--emp-bg-panel)',
+                  color: 'var(--ink-muted)',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.color = 'var(--emp-accent-txt)';
+                  e.currentTarget.style.borderColor = 'var(--emp-accent)';
+                  e.currentTarget.style.backgroundColor = 'var(--emp-accent-bg)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.color = 'var(--ink-muted)';
+                  e.currentTarget.style.borderColor = 'var(--emp-border)';
+                  e.currentTarget.style.backgroundColor = 'var(--emp-bg-panel)';
+                }}
+              >
+                <span aria-hidden="true">&larr;</span>
+                <span>Volver</span>
+                <span className="hidden sm:inline" style={{ color: 'var(--ink-faint)' }}>
+                  a {currentRouteMeta.parentLabel}
+                </span>
+              </button>
+            </div>
+          )}
+          <main className="flex-1 min-h-0 overflow-auto">
             {renderPage()}
           </main>
         </div>

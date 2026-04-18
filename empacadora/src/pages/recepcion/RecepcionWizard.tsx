@@ -545,8 +545,8 @@ export default function RecepcionWizard({ editing, editingDets, onSaved, onCance
               <label className={labelCls}>Parcela / Lote georreferenciado</label>
               <select value={header.parcela_id} onChange={e => setHeader(h => ({ ...h, parcela_id: e.target.value }))}
                 className={selectCls + ' text-base py-3'}>
-                <option value="">â€” Sin parcela â€”</option>
-                {parcelasDisponibles.map(p => <option key={p.id} value={p.id}>{p.nombre}{p.hectareas ? ` â€” ${p.hectareas} ha` : ''}</option>)}
+                <option value="">— Sin parcela —</option>
+                {parcelasDisponibles.map(p => <option key={p.id} value={p.id}>{p.nombre}{p.hectareas ? ` — ${p.hectareas} ha` : ''}</option>)}
               </select>
             </div>
 

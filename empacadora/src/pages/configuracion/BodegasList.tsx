@@ -6,10 +6,17 @@ import { Bodega } from '../../types/empacadora';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import Badge from '../../components/Badge';
-import { inputCls, labelCls, btnPrimary, btnSecondary, tableWrapCls, theadCls, thCls, trCls, tdCls, errorCls } from '../../components/ui';
+import { inputCls, selectCls, labelCls, btnPrimary, btnSecondary, tableWrapCls, theadCls, thCls, trCls, tdCls, errorCls } from '../../components/ui';
+
+const TIPO_OPTS: { value: Bodega['tipo']; label: string; desc: string }[] = [
+  { value: 'BG',   label: 'BG — Bodega General',     desc: 'Compras / stock a granel' },
+  { value: 'IP',   label: 'IP — En Proceso',          desc: 'Materiales trasladados para uso semanal' },
+  { value: 'OTRA', label: 'Otra',                     desc: 'Otro tipo de bodega' },
+];
 
 const EMPTY: Omit<Bodega, 'id' | 'created_at'> = {
-  empresa_id: 0, nombre: '', descripcion: '', es_principal: false, activo: true,
+  empresa_id: 0, nombre: '', descripcion: '', tipo: undefined,
+  erp_bodega_id: undefined, es_principal: false, activo: true,
 };
 
 export default function BodegasList() {
@@ -39,7 +46,11 @@ export default function BodegasList() {
   function openNew() { setEditing(null); setForm({ ...EMPTY }); setShowModal(true); }
   function openEdit(r: Bodega) {
     setEditing(r);
-    setForm({ empresa_id: r.empresa_id, nombre: r.nombre, descripcion: r.descripcion || '', es_principal: r.es_principal, activo: r.activo });
+    setForm({
+      empresa_id: r.empresa_id, nombre: r.nombre,
+      descripcion: r.descripcion || '', tipo: r.tipo,
+      erp_bodega_id: r.erp_bodega_id, es_principal: r.es_principal, activo: r.activo,
+    });
     setShowModal(true);
   }
 
@@ -79,6 +90,7 @@ export default function BodegasList() {
           <thead className={theadCls}>
             <tr>
               <th className={thCls}>Bodega</th>
+              <th className={thCls + ' text-center'}>Tipo</th>
               <th className={thCls}>Descripción</th>
               <th className={thCls + ' text-center'}>Principal</th>
               <th className={thCls + ' text-center'}>Estado</th>
@@ -97,6 +109,18 @@ export default function BodegasList() {
                     <Warehouse size={13} className="text-ink-muted" />
                     <span className="font-medium text-ink">{r.nombre}</span>
                   </div>
+                </td>
+                <td className={tdCls + ' text-center'}>
+                  {r.tipo ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold"
+                      style={{
+                        background: r.tipo === 'BG' ? '#2563eb20' : r.tipo === 'IP' ? '#16a34a20' : '#71717a20',
+                        color:      r.tipo === 'BG' ? '#60a5fa'   : r.tipo === 'IP' ? '#4ade80'   : '#a1a1aa',
+                        border:    `1px solid ${r.tipo === 'BG' ? '#2563eb40' : r.tipo === 'IP' ? '#16a34a40' : '#52525240'}`,
+                      }}>
+                      {r.tipo}
+                    </span>
+                  ) : <span className="text-ink-faint">—</span>}
                 </td>
                 <td className={tdCls + ' text-ink-muted'}>{r.descripcion || '—'}</td>
                 <td className={tdCls + ' text-center'}>
@@ -126,6 +150,24 @@ export default function BodegasList() {
                 onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))}
                 placeholder="Ej: Bodega Principal" className={inputCls} />
             </div>
+
+            <div>
+              <label className={labelCls}>Tipo</label>
+              <select value={form.tipo || ''}
+                onChange={e => setForm(f => ({ ...f, tipo: (e.target.value || undefined) as Bodega['tipo'] }))}
+                className={selectCls}>
+                <option value="">— Sin tipo —</option>
+                {TIPO_OPTS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              {form.tipo === 'IP' && (
+                <p className="text-[11px] mt-1" style={{ color: '#4ade80' }}>
+                  ✓ Esta bodega será usada en la Liquidación IP al cierre de semana
+                </p>
+              )}
+            </div>
+
             <div>
               <label className={labelCls}>Descripción</label>
               <textarea value={form.descripcion || ''} rows={2}

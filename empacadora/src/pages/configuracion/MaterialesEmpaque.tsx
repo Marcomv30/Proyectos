@@ -57,16 +57,14 @@ export default function MaterialesEmpaque() {
       supabase.from('emp_calibres').select('id, nombre, frutas_por_caja')
         .eq('empresa_id', empresaId).eq('activo', true).order('orden'),
       supabase.from('inv_productos')
-        .select('id, codigo, descripcion, inv_categorias(codigo_prefijo)')
+        .select('id, codigo, descripcion')
         .eq('empresa_id', empresaId).eq('activo', true).order('descripcion'),
     ]);
     if (matRes.error) setError(matRes.error.message);
     else setRows((matRes.data || []).map((m: any) => ({ ...m, stock_actual: m.inv?.[0]?.stock_actual ?? 0 })));
     if (!calRes.error) setCalibres(calRes.data || []);
     if (!erpRes.error) {
-      // Solo productos de categoría EMP (bodega Planta)
-      const emp = (erpRes.data || []).filter((p: any) => p.inv_categorias?.codigo_prefijo === 'EMP');
-      setErpProductos(emp.map((p: any) => ({ id: p.id, codigo: p.codigo, descripcion: p.descripcion })));
+      setErpProductos((erpRes.data || []).map((p: any) => ({ id: p.id, codigo: p.codigo || '', descripcion: p.descripcion })));
     }
     setLoading(false);
   }, [empresaId]);
@@ -91,14 +89,11 @@ export default function MaterialesEmpaque() {
   async function openEdit(r: MaterialEmpaque) {
     setEditing(r);
     setStockBodegas([]);
+    setErpBusqueda('');
     setForm({ empresa_id: r.empresa_id, codigo: r.codigo || '', nombre: r.nombre, tipo: r.tipo,
       cliente_id: r.cliente_id, cliente_nombre: r.cliente_nombre || '', marca: r.marca || '',
       calibre_id: r.calibre_id || '', unidad_medida: r.unidad_medida,
       stock_minimo: r.stock_minimo, activo: r.activo, inv_producto_id: r.inv_producto_id ?? null });
-    const linked = r.inv_producto_id
-      ? erpProductos.find(p => p.id === r.inv_producto_id)
-      : null;
-    setErpBusqueda(linked ? `${linked.codigo} — ${linked.descripcion}` : '');
     setShowModal(true);
     const { data } = await supabase
       .from('emp_inv_materiales')
@@ -317,43 +312,68 @@ export default function MaterialesEmpaque() {
               </div>
             )}
             {/* ── Vínculo con catálogo ERP ── */}
-            <div>
-              <label className={labelCls + ' flex items-center gap-1.5'}><Link2 size={11} /> Producto ERP vinculado</label>
-              <input
-                type="text"
-                placeholder="Buscar por código o nombre..."
-                value={erpBusqueda}
-                onChange={e => { setErpBusqueda(e.target.value); setForm(f => ({ ...f, inv_producto_id: null })); }}
-                className={inputCls}
-                list="erp-productos-list"
-              />
-              <datalist id="erp-productos-list">
+            <div className="rounded-lg p-3 border" style={{ background: 'var(--surface-deep)', borderColor: 'var(--line)' }}>
+              <label className={labelCls + ' flex items-center gap-1.5 mb-2'}>
+                <Link2 size={11} /> Producto ERP vinculado
+                <span className="font-normal ml-1" style={{ color: 'var(--ink-faint)' }}>(sincroniza entradas de FE automáticamente)</span>
+              </label>
+
+              {/* Material vinculado actualmente */}
+              {form.inv_producto_id ? (
+                <div className="flex items-center justify-between rounded-lg px-3 py-2 border border-emerald-800/50 bg-emerald-950/20 mb-2">
+                  {(() => {
+                    const p = erpProductos.find(x => x.id === form.inv_producto_id);
+                    return p ? (
+                      <div>
+                        <span className="font-mono text-xs text-emerald-300">{p.codigo}</span>
+                        <span className="text-xs text-emerald-400 ml-2">{p.descripcion}</span>
+                      </div>
+                    ) : <span className="text-xs text-ink-muted">ID: {form.inv_producto_id}</span>;
+                  })()}
+                  <button type="button"
+                    onClick={() => { setForm(f => ({ ...f, inv_producto_id: null })); setErpBusqueda(''); }}
+                    className="text-xs text-red-400 hover:text-red-300 ml-3 shrink-0">
+                    Quitar
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[11px] mb-2" style={{ color: 'var(--ink-faint)' }}>Sin vínculo — las entradas de FE no se sincronizarán</p>
+              )}
+
+              {/* Buscador */}
+              <div className="relative mb-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" size={13} />
+                <input
+                  type="text"
+                  placeholder="Buscar producto ERP por código o nombre..."
+                  value={erpBusqueda}
+                  onChange={e => setErpBusqueda(e.target.value)}
+                  className={inputCls + ' pl-8 py-1.5 text-xs'}
+                />
+              </div>
+              <select
+                size={5}
+                value={form.inv_producto_id ?? ''}
+                onChange={e => {
+                  const id = e.target.value ? Number(e.target.value) : null;
+                  setForm(f => ({ ...f, inv_producto_id: id }));
+                  if (id) setErpBusqueda('');
+                }}
+                className={selectCls}
+              >
+                <option value="">— Sin vínculo —</option>
                 {erpProductos
                   .filter(p => {
                     const q = erpBusqueda.toLowerCase();
-                    return !q || p.codigo?.toLowerCase().includes(q) || p.descripcion.toLowerCase().includes(q);
+                    return !q || (p.codigo || '').toLowerCase().includes(q) || p.descripcion.toLowerCase().includes(q);
                   })
-                  .slice(0, 50)
+                  .slice(0, 80)
                   .map(p => (
-                    <option key={p.id} value={`${p.codigo} — ${p.descripcion}`} />
+                    <option key={p.id} value={p.id}>
+                      {p.codigo ? `[${p.codigo}] ` : ''}{p.descripcion}
+                    </option>
                   ))}
-              </datalist>
-              {/* resolver selección cuando el texto coincide exactamente */}
-              {erpBusqueda && !form.inv_producto_id && (() => {
-                const match = erpProductos.find(p => `${p.codigo} — ${p.descripcion}` === erpBusqueda);
-                if (match && form.inv_producto_id !== match.id) {
-                  setTimeout(() => setForm(f => ({ ...f, inv_producto_id: match.id })), 0);
-                }
-                return match
-                  ? <p className="text-xs text-emerald-400 mt-1">Vinculado: {match.codigo} — {match.descripcion}</p>
-                  : <p className="text-xs text-ink-faint mt-1">Escribe para buscar y seleccionar de la lista</p>;
-              })()}
-              {form.inv_producto_id && (
-                <button type="button" onClick={() => { setForm(f => ({ ...f, inv_producto_id: null })); setErpBusqueda(''); }}
-                  className="text-xs text-red-400 hover:text-red-300 mt-1">
-                  Quitar vínculo
-                </button>
-              )}
+              </select>
             </div>
 
             <label className="flex items-center gap-2 cursor-pointer">

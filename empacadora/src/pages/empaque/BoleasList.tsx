@@ -16,7 +16,7 @@ import EtiquetaPaletaImprimir from './EtiquetaPaletaImprimir';
 import { getCostaRicaDateISO } from '../../utils/costaRicaTime';
 import { inputCls, selectCls, labelCls, btnPrimary, btnSecondary, tableWrapCls, theadCls, thCls, trCls, tdCls, errorCls } from '../../components/ui';
 
-// â”€â”€â”€ Semana ISO desde fecha â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Semana ISO desde fecha ───────────────────────────────────────────────────
 function getIsoDayNumber(dateStr: string) {
   const [year, month, day] = dateStr.split('-').map(Number);
   if (!year || !month || !day) return 0;
@@ -31,8 +31,8 @@ function formatNumeroPaletaVisual(numeroPaleta: number | string | null | undefin
   return dayPrefix ? `${dayPrefix}-${numero}` : String(numero);
 }
 
-// Semanas a mostrar: Â±6 semanas desde hoy
-// â”€â”€â”€ CÃ³digo de planta fijo por empresa â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Semanas a mostrar: ±6 semanas desde hoy
+// ─── Código de planta fijo por empresa ───────────────────────────────────────
 const PLANTA_CODIGO = '01';
 const LAST_PALLET_SELECTION_KEY = 'empacadora:last-pallet-selection';
 
@@ -210,7 +210,7 @@ export default function BoleasList() {
     return acc;
   }, {});
 
-  // â”€â”€â”€ Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Handlers ────────────────────────────────────────────────────────────────
 
   function handleCalibreChange(calibreId: string) {
     const cal = calibres.find(c => c.id === calibreId);
@@ -246,7 +246,7 @@ export default function BoleasList() {
     if (det?.calibre_id) {
       const cal = calibres.find(c => c.id === det.calibre_id);
       if (cal) setForm(f => ({ ...f, frutas_por_caja: cal.frutas_por_caja, tipo: cal.tipo as 'COR' | 'CRW' }));
-      // Si la lÃ­nea OPC no tiene materiales, resolver desde emp_calibre_materiales (marca+calibre)
+      // Si la línea OPC no tiene materiales, resolver desde emp_calibre_materiales (marca+calibre)
       if (!det.material_caja_id || !det.material_colilla_id) {
         const marcaId = det.marca_id || '';
         const { data: mats } = await supabase
@@ -266,7 +266,7 @@ export default function BoleasList() {
         }
       }
     }
-    // Enfocar y seleccionar el campo cajas empacadas para confirmaciÃ³n
+    // Enfocar y seleccionar el campo cajas empacadas para confirmación
     setTimeout(() => { cajasEmpacadasRef.current?.focus(); cajasEmpacadasRef.current?.select(); }, 50);
   }
 
@@ -666,7 +666,7 @@ export default function BoleasList() {
         <Modal title={editing ? `Editar Paleta #${formatNumeroPaletaVisual(editing.numero_paleta, editing.fecha)}` : 'Nueva Paleta de Empaque'} onClose={() => setShowModal(false)} size="xl">
           <form onSubmit={handleSave} className="space-y-5">
 
-            {/* LÃ­nea 1: Programa y referencias */}
+            {/* Línea 1: Programa y referencias */}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <div>
                 <label className={labelCls}>Programa (ORP)</label>
@@ -723,7 +723,7 @@ export default function BoleasList() {
               </div>
             </div>
 
-            {/* LÃ­nea 2: Fecha â†’ semana auto */}
+            {/* Línea 2: Fecha → semana auto */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <label className={labelCls}># Paleta *</label>
@@ -763,7 +763,7 @@ export default function BoleasList() {
               </div>
             </div>
 
-            {/* LÃ­nea 3: Calibre y marca */}
+            {/* Línea 3: Calibre y marca */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <label className={labelCls}>Calibre</label>
@@ -795,7 +795,7 @@ export default function BoleasList() {
               </div>
             </div>
 
-            {/* LÃ­nea 4: Materiales de empaque */}
+            {/* Línea 4: Materiales de empaque */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>Nombre Caja (carton)</label>
@@ -813,7 +813,7 @@ export default function BoleasList() {
               </div>
             </div>
 
-            {/* LÃ­nea 5: Tarina y cajas */}
+            {/* Línea 5: Tarina y cajas */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <label className={labelCls}>Tarina</label>

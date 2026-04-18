@@ -48,8 +48,30 @@ export interface Parcela {
   geojson?: any;
   activo: boolean;
   created_at?: string;
+  // columnas agregadas en migración 20260417
+  tipo_finca?: 'propia' | 'alquilada';
+  area_ha_perimetro?: number;
+  area_ha_sembrada?: number;
   // join
   proveedor?: Pick<ProveedorFruta, 'id' | 'nombre'>;
+}
+
+// ─── Bloques de parcela ──────────────────────────────────────────────────────
+export type TipoBloque = 'siembra' | 'camino' | 'proteccion' | 'otro';
+
+export interface EmpBloque {
+  id: string;
+  empresa_id: number;
+  parcela_id: string;
+  tipo: TipoBloque;
+  num: number;
+  geojson?: any;
+  area_ha?: number;
+  plant_count?: number;
+  notas?: string;
+  activo: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // ─── Materiales de Empaque ───────────────────────────────────────────────────
@@ -82,9 +104,47 @@ export interface Bodega {
   empresa_id: number;
   nombre: string;
   descripcion?: string;
+  tipo?: 'BG' | 'IP' | 'OTRA';
+  erp_bodega_id?: number;
   es_principal: boolean;
   activo: boolean;
   created_at?: string;
+}
+
+// ─── Conversión de unidades (BG en caja → IP en unidades) ───────────────────
+export interface InvConversion {
+  id: string;
+  empresa_id: number;
+  material_id: string;
+  unidad_compra: string;
+  unidades_por_paquete: number;
+  unidad_uso: string;
+  notas?: string;
+  activo: boolean;
+  created_at?: string;
+  // join
+  material?: Pick<MaterialEmpaque, 'id' | 'nombre' | 'codigo'>;
+}
+
+// ─── Vista saldos BG / IP ────────────────────────────────────────────────────
+export interface SaldoBGIP {
+  empresa_id: number;
+  material_id: string;
+  codigo?: string;
+  nombre: string;
+  material_tipo: string;
+  unidad_medida: string;
+  stock_minimo: number;
+  stock_bg: number;
+  stock_bg_paquetes: number;
+  stock_ip: number;
+  stock_total: number;
+  unidad_compra?: string;
+  unidades_por_paquete?: number;
+  unidad_uso?: string;
+  bodega_bg_id?: string;
+  bodega_ip_id?: string;
+  estado_stock: 'ok' | 'minimo' | 'agotado';
 }
 
 // ─── Inventario de Materiales ────────────────────────────────────────────────
@@ -404,5 +464,12 @@ export type AppRoute =
   | 'empaque.despachos'
   | 'config.destinos'
   | 'config.bodegas'
+  | 'config.materiales_paleta'
   | 'inventario.materiales'
-  | 'config.general';
+  | 'inventario.disponibilidad'
+  | 'config.general'
+  | 'config.dron'
+  | 'config.dron_mosaico'
+  | 'config.dron_mosaico_lab'
+  | 'reportes.produccion'
+  | 'inventario.liquidacion';

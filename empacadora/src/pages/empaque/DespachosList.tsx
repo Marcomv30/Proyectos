@@ -78,6 +78,7 @@ export default function DespachosList() {
   const [cierreBoletasDet, setCierreBoletasDet] = useState<BoletaCierreDet[]>([]);
   const [cierreLoading, setCierreLoading] = useState(false);
   const [cierreSaving, setCierreSaving] = useState(false);
+  const [cierreWarnings, setCierreWarnings] = useState<string[]>([]);
 
   const [generandoFeeId, setGenerandoFeeId] = useState<string | null>(null);
   const [feeError, setFeeError] = useState('');
@@ -151,7 +152,7 @@ export default function DespachosList() {
     return true;
   });
 
-  // Al seleccionar programa Ã¢â€ â€™ pre-llenar datos editables
+  // Al seleccionar programa → pre-llenar datos editables
   function handleProgramaChange(progId: string) {
     const p = programas.find(x => x.id === progId) as ProgramaItem | undefined;
     const dest = p?.destino_id ? destinos.find(d => d.id === p.destino_id) : undefined;
@@ -174,7 +175,7 @@ export default function DespachosList() {
 
   function openNew() {
     setEditing(null);
-    // Pre-llenar campos de exportaciÃƒÂ³n del ÃƒÂºltimo despacho cerrado (machote)
+    // Pre-llenar campos de exportación del último despacho cerrado (machote)
     const ultimo = rows.find(r => r.cerrada);
     setForm({
       ...EMPTY,
@@ -209,7 +210,7 @@ export default function DespachosList() {
   }
 
   function openDuplicate(d: Despacho) {
-    setEditing(null); // nuevo, no ediciÃƒÂ³n
+    setEditing(null); // nuevo, no edición
     setForm({
       empresa_id: d.empresa_id, semana_id: semanas[0]?.id || d.semana_id || '',
       programa_id: d.programa_id || '',
@@ -269,6 +270,7 @@ export default function DespachosList() {
 
   async function abrirCierre(d: Despacho) {
     setCierreTarget(d);
+    setCierreWarnings([]);
     setCierreForm({
       hora_cierre: getCostaRicaTimeHM(),
       marchamo_salida: d.marchamo_salida || '',
@@ -276,17 +278,43 @@ export default function DespachosList() {
       peso_neto: d.peso_neto ? String(d.peso_neto) : '',
     });
     setCierreLoading(true);
-    const { data } = await supabase.from('emp_boletas')
-      .select('calibre_nombre,marca_nombre,cajas_empacadas,total_frutas,numero_paleta,trazabilidad')
-      .eq('despacho_id', d.id).order('numero_paleta');
-    setCierreBoletasDet(data || []);
+
+    const [{ data: boletas }, { data: materiales }] = await Promise.all([
+      supabase.from('emp_boletas')
+        .select('calibre_id,calibre_nombre,marca_id,marca_nombre,cajas_empacadas,total_frutas,numero_paleta,trazabilidad')
+        .eq('despacho_id', d.id).order('numero_paleta'),
+      supabase.from('emp_calibre_materiales')
+        .select('calibre_id,marca_id')
+        .eq('empresa_id', empresaId),
+    ]);
+
+    setCierreBoletasDet(boletas || []);
+
+    // ── Verificar calibres sin materiales configurados ────────────────────
+    const warnings: string[] = [];
+    const matSet = new Set(
+      (materiales || []).map(m => `${m.calibre_id}__${m.marca_id ?? 'null'}`)
+    );
+    const vistos = new Set<string>();
+    for (const b of (boletas || [])) {
+      if (!b.cajas_empacadas) continue;
+      const keyEspecifico = `${b.calibre_id}__${b.marca_id ?? 'null'}`;
+      const keyGeneral    = `${b.calibre_id}__null`;
+      const label = `${b.calibre_nombre || '?'}${b.marca_nombre ? ' / ' + b.marca_nombre : ''}`;
+      if (!vistos.has(keyEspecifico) && !matSet.has(keyEspecifico) && !matSet.has(keyGeneral)) {
+        warnings.push(label);
+        vistos.add(keyEspecifico);
+      }
+    }
+    setCierreWarnings(warnings);
     setCierreLoading(false);
   }
 
   async function confirmarCierre() {
     if (!cierreTarget) return;
+    if (cierreWarnings.length > 0) return; // bloqueado por falta de configuración
     setCierreSaving(true);
-    await supabase.from('emp_despachos').update({
+    const { error: errCierre } = await supabase.from('emp_despachos').update({
       cerrada: true,
       fecha_cierre: getCostaRicaDateISO(),
       hora_cierre: cierreForm.hora_cierre || null,
@@ -295,6 +323,11 @@ export default function DespachosList() {
       peso_neto: cierreForm.peso_neto ? +cierreForm.peso_neto : null,
     }).eq('id', cierreTarget.id);
     setCierreSaving(false);
+    if (errCierre) {
+      // El trigger puede lanzar excepción con mensaje descriptivo
+      alert('Error al cerrar la BD: ' + (errCierre.message || 'Error desconocido'));
+      return;
+    }
     setCierreTarget(null);
     load();
   }
@@ -346,10 +379,10 @@ export default function DespachosList() {
           : { data: [] },
       ]);
 
-      if (!prog && d.programa_id) errores.push('No se encontrÃƒÂ³ el programa');
+      if (!prog && d.programa_id) errores.push('No se encontró el programa');
       if (!boletas || boletas.length === 0) errores.push('El despacho no tiene paletas asignadas');
 
-      // Cargar productos ÃƒÂºnicos usados en los OPCs
+      // Cargar productos únicos usados en los OPCs
       const prodIds = Array.from(new Set((opcs || []).map((o: any) => o.producto_fee_id).filter(Boolean)));
       const productosMap: Record<number, { descripcion: string; codigo_cabys: string; partida_arancelaria: string | null; precio_venta: number | null }> = {};
       if (prodIds.length > 0) {
@@ -368,7 +401,7 @@ export default function DespachosList() {
           const { data: rec } = await supabase.from('fe_receptores_bitacora')
             .select('razon_social, identificacion, email, direccion').eq('id', cli.fe_receptor_id).single();
           receptor = rec;
-          if (!rec) errores.push('No se encontrÃƒÂ³ el receptor FE');
+          if (!rec) errores.push('No se encontró el receptor FE');
         }
       } else if (prog) {
         errores.push('El programa no tiene cliente exportador asignado');
@@ -390,9 +423,9 @@ export default function DespachosList() {
         const prodId = opc?.producto_fee_id;
         const prod = prodId ? productosMap[prodId] : null;
         const precio = prod?.precio_venta || 0;
-        if (!prod) errores.push(`LÃƒÂ­nea ${opc?.calibre_nombre || '?'} / ${opc?.marca_nombre || '?'}: sin producto FEE configurado en el OPC`);
-        if (prod && !prod.precio_venta) errores.push(`LÃƒÂ­nea ${opc?.calibre_nombre || '?'}: el producto no tiene precio de venta en el catÃƒÂ¡logo`);
-        if (prod && !prod.codigo_cabys) errores.push(`LÃƒÂ­nea ${opc?.calibre_nombre || '?'}: producto sin cÃƒÂ³digo CABYS`);
+        if (!prod) errores.push(`Línea ${opc?.calibre_nombre || '?'} / ${opc?.marca_nombre || '?'}: sin producto FEE configurado en el OPC`);
+        if (prod && !prod.precio_venta) errores.push(`Línea ${opc?.calibre_nombre || '?'}: el producto no tiene precio de venta en el catálogo`);
+        if (prod && !prod.codigo_cabys) errores.push(`Línea ${opc?.calibre_nombre || '?'}: producto sin código CABYS`);
         return {
           opc_id: opc?.id || null,
           marca: opc?.marca_nombre || '-',
@@ -428,17 +461,17 @@ export default function DespachosList() {
     setFeeError('');
     setFeePreview(null);
     try {
-      // 1. Programa Ã¢â€ â€™ emp_cliente_id
+      // 1. Programa → emp_cliente_id
       if (!d.programa_id) throw new Error('El despacho no tiene programa asociado');
       const { data: prog, error: progErr } = await supabase
         .from('emp_programas')
         .select('emp_cliente_id')
         .eq('id', d.programa_id)
         .single();
-      if (progErr || !prog) throw new Error('No se encontrÃƒÂ³ el programa: ' + (progErr?.message || ''));
+      if (progErr || !prog) throw new Error('No se encontró el programa: ' + (progErr?.message || ''));
       if (!prog.emp_cliente_id) throw new Error('El programa no tiene cliente exportador asignado');
 
-      // 2. OPCs del programa con producto y precio por lÃƒÂ­nea
+      // 2. OPCs del programa con producto y precio por línea
       const { data: opcs, error: opcErr } = await supabase
         .from('emp_programas_detalle')
         .select('id, marca_nombre, calibre_nombre, producto_fee_id, precio_usd_caja')
@@ -463,7 +496,7 @@ export default function DespachosList() {
         gruposOpc[key].cajas += b.cajas_empacadas;
       });
 
-      // 4. Cargar productos ÃƒÂºnicos
+      // 4. Cargar productos únicos
       const prodIds = Array.from(new Set(Object.values(gruposOpc).map(g => g.opc?.producto_fee_id).filter(Boolean)));
       const productosMap: Record<number, { descripcion: string; codigo_cabys: string; partida_arancelaria: string | null; precio_venta: number | null }> = {};
       if (prodIds.length > 0) {
@@ -472,23 +505,23 @@ export default function DespachosList() {
         (prods || []).forEach((p: any) => { productosMap[p.id] = p; });
       }
 
-      // Validar que todas las lÃƒÂ­neas tengan producto y precio
+      // Validar que todas las líneas tengan producto y precio
       for (const [, g] of Object.entries(gruposOpc)) {
         const opc = g.opc;
-        if (!opc?.producto_fee_id) throw new Error(`LÃƒÂ­nea ${opc?.calibre_nombre || '?'} / ${opc?.marca_nombre || '?'}: sin producto FEE configurado en el programa`);
+        if (!opc?.producto_fee_id) throw new Error(`Línea ${opc?.calibre_nombre || '?'} / ${opc?.marca_nombre || '?'}: sin producto FEE configurado en el programa`);
         const prod = productosMap[opc.producto_fee_id];
-        if (!prod) throw new Error(`No se encontrÃƒÂ³ el producto ${opc.producto_fee_id} en el catÃƒÂ¡logo`);
-        if (!prod.precio_venta) throw new Error(`El producto de la lÃƒÂ­nea ${opc.calibre_nombre} no tiene precio de venta en el catÃƒÂ¡logo ERP`);
-        if (!prod.codigo_cabys) throw new Error(`El producto de la lÃƒÂ­nea ${opc.calibre_nombre} no tiene cÃƒÂ³digo CABYS`);
+        if (!prod) throw new Error(`No se encontró el producto ${opc.producto_fee_id} en el catálogo`);
+        if (!prod.precio_venta) throw new Error(`El producto de la línea ${opc.calibre_nombre} no tiene precio de venta en el catálogo ERP`);
+        if (!prod.codigo_cabys) throw new Error(`El producto de la línea ${opc.calibre_nombre} no tiene código CABYS`);
       }
 
-      // 5. Cliente Ã¢â€ â€™ receptor FE
+      // 5. Cliente → receptor FE
       const { data: cliente, error: cliErr } = await supabase
         .from('emp_clientes')
         .select('fe_receptor_id')
         .eq('id', prog.emp_cliente_id)
         .single();
-      if (cliErr || !cliente) throw new Error('No se encontrÃƒÂ³ el cliente exportador');
+      if (cliErr || !cliente) throw new Error('No se encontró el cliente exportador');
       if (!cliente.fe_receptor_id) throw new Error('El cliente exportador no tiene receptor FE configurado');
 
       // 6. Receptor FE
@@ -497,7 +530,7 @@ export default function DespachosList() {
         .select('id, razon_social, tipo_identificacion, identificacion, actividad_codigo, actividad_descripcion, email, telefono, direccion')
         .eq('id', cliente.fe_receptor_id)
         .single();
-      if (recErr || !receptor) throw new Error('No se encontrÃƒÂ³ el receptor FE');
+      if (recErr || !receptor) throw new Error('No se encontró el receptor FE');
 
       // 7. Tipo de cambio USD
       const { data: feConfig } = await supabase
@@ -507,7 +540,7 @@ export default function DespachosList() {
         .single();
       const tipoCambio = feConfig?.tipo_cambio_usd ?? 1; // eslint-disable-line @typescript-eslint/no-unused-vars
 
-      // 8. Construir lÃƒÂ­neas FEE (una por OPC)
+      // 8. Construir líneas FEE (una por OPC)
       const lineasData = Object.values(gruposOpc).map((g, i) => {
         const opc = g.opc;
         const prod = productosMap[opc.producto_fee_id];
@@ -571,7 +604,7 @@ export default function DespachosList() {
       // 8. Insertar fe_documento_lineas
       const lineasInsert = lineasData.map(l => ({ ...l, documento_id: doc.id }));
       const { error: linErr } = await supabase.from('fe_documento_lineas').insert(lineasInsert);
-      if (linErr) throw new Error('Error al crear lÃƒÂ­neas: ' + linErr.message);
+      if (linErr) throw new Error('Error al crear líneas: ' + linErr.message);
 
       // 9. Marcar despacho con fee_documento_id
       await supabase.from('emp_despachos').update({
@@ -582,7 +615,7 @@ export default function DespachosList() {
       // 10. Emitir FEE: firmar y enviar al Ministerio de Hacienda
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
-      if (!token) throw new Error('SesiÃƒÂ³n expirada, vuelva a ingresar');
+      if (!token) throw new Error('Sesión expirada, vuelva a ingresar');
 
       const emitResp = await fetch(`/api/facturacion/emitir/${doc.id}`, {
         method: 'POST',
@@ -594,7 +627,7 @@ export default function DespachosList() {
       });
       const emitData = await emitResp.json();
       if (!emitData.ok) {
-        // Rollback: quitar fee_documento_id para que el botÃƒÂ³n FEE reaparezca
+        // Rollback: quitar fee_documento_id para que el botón FEE reaparezca
         await supabase.from('emp_despachos')
           .update({ fee_documento_id: null, fee_generada_at: null })
           .eq('id', d.id);
@@ -634,7 +667,7 @@ export default function DespachosList() {
     return true;
   });
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Vista de formulario completo Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ─── Vista de formulario completo ─────────────────────────────────────────
   if (view === 'form') {
     return (
       <div className="min-h-screen" style={{ backgroundColor: 'var(--surface-base)' }}>
@@ -662,7 +695,7 @@ export default function DespachosList() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-            {/* Ã¢â€â‚¬Ã¢â€â‚¬ Columna izquierda: programa + logÃƒÂ­stica Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+            {/* ── Columna izquierda: programa + logística ────────────── */}
             <div className="space-y-5">
 
               {/* Selector de programa */}
@@ -696,7 +729,7 @@ export default function DespachosList() {
                 </div>
               </div>
 
-              {/* Datos logÃƒÂ­sticos (editables, pre-llenados desde programa) */}
+              {/* Datos logísticos (editables, pre-llenados desde programa) */}
               <div className="rounded-lg p-4 space-y-4" style={{ background: 'var(--surface-raised)', border: '1px solid var(--line)' }}>
                 <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--ink-faint)' }}>Datos Logisticos</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -746,7 +779,7 @@ export default function DespachosList() {
               </div>
             </div>
 
-            {/* Ã¢â€â‚¬Ã¢â€â‚¬ Columna derecha: contenedor + marchamos + pesos Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+            {/* ── Columna derecha: contenedor + marchamos + pesos ───── */}
             <div className="space-y-5">
 
               {/* Contenedor */}
@@ -770,7 +803,7 @@ export default function DespachosList() {
                 </div>
               </div>
 
-              {/* Marchamos y termÃƒÂ³grafo */}
+              {/* Marchamos y termógrafo */}
               <div className="rounded-lg p-4 space-y-4" style={{ background: 'var(--surface-raised)', border: '1px solid var(--line)' }}>
                 <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--ink-faint)' }}>Marchamos y Termografo</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -806,7 +839,7 @@ export default function DespachosList() {
                 </div>
               </div>
 
-              {/* Datos ExportaciÃƒÂ³n FEE */}
+              {/* Datos Exportación FEE */}
               <div className="rounded-lg p-4 space-y-4" style={{ background: 'var(--surface-raised)', border: '1px solid var(--line)' }}>
                 <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--ink-faint)' }}>Exportacion (FEE pag. 2)</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -869,7 +902,7 @@ export default function DespachosList() {
     return <FeeDespachoImprimir despachoId={feeId} onBack={() => setFeeId(null)} />;
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Vista de lista Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ─── Vista de lista ──────────────────────────────────────────────────────
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-5 gap-4">
@@ -955,7 +988,7 @@ export default function DespachosList() {
                         <div className="flex items-center gap-3 text-[11px] mb-2" style={{ color: 'var(--ink-faint)' }}>
                           {d.marchamo_llegada && <span>M.Llegada: <span className="font-mono" style={{ color: '#fbbf24' }}>{d.marchamo_llegada}</span></span>}
                           {d.marchamo_salida && <span>M.Salida: <span className="font-mono" style={{ color: '#fbbf24' }}>{d.marchamo_salida}</span></span>}
-                          {d.termografo && <span>TermÃƒÂ³grafo: <span className="font-mono" style={{ color: '#67e8f9' }}>{d.termografo}</span></span>}
+                          {d.termografo && <span>Termógrafo: <span className="font-mono" style={{ color: '#67e8f9' }}>{d.termografo}</span></span>}
                         </div>
                       )}
                       <div className="flex items-center gap-4 text-[11px]" style={{ color: 'var(--ink-faint)' }}>
@@ -1099,7 +1132,7 @@ export default function DespachosList() {
                       return (
                         <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--line)' }}>
                           <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: '#fbbf24' }}>
-                            Resumen para FacturaciÃƒÂ³n
+                            Resumen para Facturación
                           </p>
                           <div className="rounded overflow-hidden" style={{ border: '1px solid var(--line)' }}>
                             <div className="overflow-x-auto">
@@ -1143,7 +1176,7 @@ export default function DespachosList() {
         </div>
       )}
 
-      {/* Modal asignaciÃƒÂ³n de paletas - uso correcto de modal (datos compactos) */}
+      {/* Modal asignación de paletas - uso correcto de modal (datos compactos) */}
       {asignandoId && despachoAsignando && (() => {
         const CAP = 21;
         const usado = boletasDes.length;
@@ -1206,7 +1239,7 @@ export default function DespachosList() {
                       style={libre <= 0
                         ? { color: '#4b5563', border: '1px solid #374151', cursor: 'not-allowed' }
                         : { color: '#4ade80', border: '1px solid #14532d' }}>
-                      Agregar Ã¢â€ â€™
+                      Agregar →
                     </button>
                   </div>
                 ))}
@@ -1231,7 +1264,7 @@ export default function DespachosList() {
                     <button onClick={() => desasignarBoleta(b.id)}
                       className="text-xs px-2 py-1 rounded transition-colors"
                       style={{ color: '#f87171', border: '1px solid #7f1d1d' }}>
-                      Ã¢â€ Â Quitar
+                      â†Â Quitar
                     </button>
                   </div>
                 ))}
@@ -1245,7 +1278,7 @@ export default function DespachosList() {
         );
       })()}
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Modal Preview FEE Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* ── Modal Preview FEE ──────────────────────────────────── */}
       {feePreview && (
         <Modal title={`Previsualizar FEE - ${feePreview.despacho.codigo}`} onClose={() => setFeePreview(null)} size="xl">
           <div className="space-y-4 text-xs" style={{ color: 'var(--ink)' }}>
@@ -1270,7 +1303,7 @@ export default function DespachosList() {
               </div>
             )}
 
-            {/* CondiciÃƒÂ³n + plazo */}
+            {/* Condición + plazo */}
             <div className="rounded p-3 space-y-3" style={{ background: 'var(--surface-raised)', border: '1px solid var(--line)' }}>
               <p className="font-bold uppercase tracking-widest text-[10px]" style={{ color: 'var(--ink-faint)' }}>Condiciones de venta</p>
               <div className="grid grid-cols-2 gap-3">
@@ -1293,7 +1326,7 @@ export default function DespachosList() {
               </div>
             </div>
 
-            {/* LÃƒÂ­neas preview - una por OPC con producto y precio propios */}
+            {/* Líneas preview - una por OPC con producto y precio propios */}
             {feePreview.lineas.length > 0 && (
               <div className="rounded p-3" style={{ background: 'var(--surface-raised)', border: '1px solid var(--line)' }}>
                 <p className="font-bold uppercase tracking-widest text-[10px] mb-2" style={{ color: 'var(--ink-faint)' }}>Lineas del comprobante</p>
@@ -1391,14 +1424,23 @@ export default function DespachosList() {
                               </tr>
                             </thead>
                             <tbody>
-                              {Object.entries(groups).map(([key, g]) => (
-                                <tr key={key} style={{ borderTop: '1px solid var(--line)' }}>
-                                  <td className="px-3 py-1.5 font-medium text-ink">{key}</td>
-                                  <td className="px-3 py-1.5 text-ink-muted">{g.paletas}</td>
-                                  <td className="px-3 py-1.5 text-ink">{g.cajas}</td>
-                                  <td className="px-3 py-1.5 text-ink">{g.frutas.toLocaleString('es-CR')}</td>
-                                </tr>
-                              ))}
+                              {Object.entries(groups).map(([key, g]) => {
+                                const sinConfig = cierreWarnings.includes(key);
+                                return (
+                                  <tr key={key} style={{
+                                    borderTop: '1px solid var(--line)',
+                                    background: sinConfig ? 'rgba(127,29,29,0.25)' : undefined,
+                                  }}>
+                                    <td className="px-3 py-1.5 font-medium" style={{ color: sinConfig ? '#fca5a5' : 'var(--ink)' }}>
+                                      {sinConfig && <span className="mr-1">⛔</span>}{key}
+                                      {sinConfig && <span className="ml-2 text-[10px] font-normal" style={{ color: '#f87171' }}>sin materiales</span>}
+                                    </td>
+                                    <td className="px-3 py-1.5 text-ink-muted">{g.paletas}</td>
+                                    <td className="px-3 py-1.5 text-ink">{g.cajas}</td>
+                                    <td className="px-3 py-1.5 text-ink">{g.frutas.toLocaleString('es-CR')}</td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                             <tfoot>
                               <tr style={{ borderTop: '2px solid var(--line)', background: 'var(--surface-deep)' }}>
@@ -1446,10 +1488,21 @@ export default function DespachosList() {
               </div>
             </div>
 
+            {/* ── Advertencia calibres sin materiales ─────────────────── */}
+            {cierreWarnings.length > 0 && (
+              <div className="rounded-lg px-3 py-2 text-xs flex items-center gap-2"
+                style={{ background: '#450a0a', border: '1px solid #7f1d1d', color: '#fca5a5' }}>
+                <span>⛔</span>
+                <span>Configurá los materiales faltantes en <strong>Configuración → Calibres</strong> antes de cerrar.</span>
+              </div>
+            )}
+
             <div className="flex justify-end gap-3 pt-2" style={{ borderTop: '1px solid var(--line)' }}>
               <button type="button" onClick={() => setCierreTarget(null)} className={btnSecondary}>Cancelar</button>
-              <button type="button" onClick={confirmarCierre} disabled={cierreSaving}
-                className={btnPrimary + ' flex items-center gap-2'}>
+              <button type="button" onClick={confirmarCierre}
+                disabled={cierreSaving || cierreWarnings.length > 0}
+                className={btnPrimary + ' flex items-center gap-2'}
+                style={{ opacity: cierreWarnings.length > 0 ? 0.4 : 1 }}>
                 <Lock size={13} /> {cierreSaving ? 'Cerrando...' : 'Confirmar Cierre'}
               </button>
             </div>

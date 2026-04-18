@@ -1,0 +1,10 @@
+const fs = require('fs');
+const buf = fs.readFileSync('D:/Proyectos/empacadora/scripts/test-dcim/100MEDIA/DJI_0001.JPG');
+const text = Buffer.from(buf).toString('latin1');
+const isPNG = buf[0]===137 && buf[1]===80 && buf[2]===78 && buf[3]===71;
+console.log('Size:', buf.length, 'bytes');
+console.log('Is PNG:', isPNG);
+const lat = text.match(/drone-dji:Latitude="(-?[\d.]+)"/);
+const lng = text.match(/drone-dji:Longitude="(-?[\d.]+)"/);
+console.log('Lat:', lat && lat[1]);
+console.log('Lng:', lng && lng[1]);
