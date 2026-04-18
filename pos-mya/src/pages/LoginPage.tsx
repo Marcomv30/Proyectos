@@ -102,9 +102,14 @@ export default function LoginPage({ onLogin }: Props) {
 
         .login-wrap {
           min-height: 100vh;
+          min-height: 100dvh;
           display: grid;
           grid-template-columns: 1.25fr 460px;
           background: #0f172a;
+          padding-top: env(safe-area-inset-top);
+          padding-right: env(safe-area-inset-right);
+          padding-bottom: env(safe-area-inset-bottom);
+          padding-left: env(safe-area-inset-left);
         }
         .login-showcase {
           position: relative; overflow: hidden;
@@ -210,7 +215,7 @@ export default function LoginPage({ onLogin }: Props) {
         @media (max-width: 860px) {
           .login-wrap { grid-template-columns: 1fr !important; }
           .login-showcase { display: none !important; }
-          .login-panel-wrap { min-height: 100vh; }
+          .login-panel-wrap { min-height: 100vh; min-height: 100dvh; }
         }
       `}</style>
 

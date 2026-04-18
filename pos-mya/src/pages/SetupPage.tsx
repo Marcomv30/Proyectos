@@ -23,7 +23,19 @@ type TerminalFE = { id: number; nombre: string; sucursal: string; punto_venta: s
 type Step = 'sucursal' | 'caja'
 
 const S = `
-  .setup-wrap { min-height:100vh; background:#0b1120; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .setup-wrap {
+    min-height:100vh;
+    min-height:100dvh;
+    background:#0b1120;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+    padding-top:calc(24px + env(safe-area-inset-top));
+    padding-right:calc(24px + env(safe-area-inset-right));
+    padding-bottom:calc(24px + env(safe-area-inset-bottom));
+    padding-left:calc(24px + env(safe-area-inset-left));
+  }
   .setup-card { background:#111a2e; border:1px solid rgba(137,160,201,0.18); border-radius:22px; width:min(520px,96vw); padding:32px; box-shadow:0 32px 80px rgba(0,0,0,0.5); position:relative; }
   .setup-logo { width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg,#16a34a,#22c55e); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:800; color:white; margin-bottom:20px; }
   .setup-title { font-size:20px; font-weight:900; color:#f3f7ff; letter-spacing:-.02em; }

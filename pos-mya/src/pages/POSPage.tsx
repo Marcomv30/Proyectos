@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { supabase, API } from '../lib/supabase'
 import type { TerminalConfig } from './SetupPage'
 import ClienteModal from '../components/ClienteModal'
+import DevolucionModal from '../components/DevolucionModal'
 
 // --- Tipos --------------------------------------------------------------------
 
@@ -169,7 +170,21 @@ const filtrarCreditoClientesLocal = (rows: ClienteCredito[], q: string) => {
 // --- Estilos ------------------------------------------------------------------
 
 const S = `
-  .pos-root { display:flex; flex-direction:column; height:100vh; background:#0b1120; color:#d6e2ff; font-family:inherit; overflow:hidden; }
+  .pos-root {
+    display:flex;
+    flex-direction:column;
+    min-height:100vh;
+    min-height:100dvh;
+    height:100dvh;
+    background:#0b1120;
+    color:#d6e2ff;
+    font-family:inherit;
+    overflow:hidden;
+    padding-top:env(safe-area-inset-top);
+    padding-right:env(safe-area-inset-right);
+    padding-bottom:env(safe-area-inset-bottom);
+    padding-left:env(safe-area-inset-left);
+  }
   .pos-topbar { display:flex; align-items:center; gap:12px; padding:10px 18px; background:#111a2e; border-bottom:1px solid rgba(137,160,201,0.14); flex-shrink:0; }
   .pos-topbar-title { font-size:17px; font-weight:900; color:#f8fbff; letter-spacing:-.02em; }
   .pos-sep { display:inline-block; width:3px; height:3px; border-radius:50%; background:currentColor; opacity:0.5; vertical-align:middle; margin:0 5px; }
@@ -178,7 +193,7 @@ const S = `
   .pos-topbar-btn { padding:7px 14px; border:1px solid rgba(137,160,201,0.22); border-radius:10px; background:transparent; color:#c8d6f2; font-size:12px; font-weight:700; cursor:pointer; transition:background .15s; }
   .pos-topbar-btn:hover { background:rgba(137,160,201,0.1); }
   .pos-topbar-btn.active { background:#1e3a8a; border-color:#3b82f6; color:#bfdbfe; }
-  .pos-body { display:flex; flex:1; overflow:hidden; }
+  .pos-body { display:flex; flex:1; overflow:hidden; min-height:0; }
 
   /* Panel izquierdo */
   .pos-left { display:flex; flex-direction:column; flex:1; min-width:0; overflow:hidden; }
@@ -223,9 +238,13 @@ const S = `
   .pos-empty-text { font-size:13px; font-weight:600; }
 
   /* Panel derecho: carrito */
-  .pos-right { width:440px; flex-shrink:0; display:flex; flex-direction:column; background:#111a2e; border-left:1px solid rgba(137,160,201,0.14); overflow:hidden; }
+  .pos-right { width:440px; flex-shrink:0; display:flex; flex-direction:column; background:#111a2e; border-left:1px solid rgba(137,160,201,0.14); overflow:hidden; min-height:0; }
   @media (max-width:1024px) { .pos-right { width:360px; } }
-  @media (max-width:768px) { .pos-right { width:100%; border-left:none; border-top:1px solid rgba(137,160,201,0.14); } }
+  @media (max-width:768px) {
+    .pos-body { flex-direction:column; overflow:auto; }
+    .pos-left { min-height:42vh; min-height:42dvh; }
+    .pos-right { width:100%; height:50vh; height:50dvh; border-left:none; border-top:1px solid rgba(137,160,201,0.14); }
+  }
 
   /* Cliente */
   .pos-cliente-bar { padding:10px 14px; border-bottom:1px solid rgba(137,160,201,0.10); position:relative; }
@@ -398,6 +417,15 @@ const S = `
   .pos-shortcut { display:inline-flex; align-items:center; gap:5px; font-size:10px; color:#4a5e7e; }
   .pos-shortcut kbd { display:inline-block; padding:2px 6px; background:#1a2740; border:1px solid rgba(137,160,201,0.25); border-bottom-width:2px; border-radius:5px; font-size:10px; font-family:monospace; font-weight:700; color:#7f92b5; line-height:1.5; }
   .pos-shortcut-sep { width:1px; height:14px; background:rgba(137,160,201,0.12); }
+  @media (max-width:768px) {
+    .pos-topbar { flex-wrap:wrap; padding:8px 10px; gap:6px; }
+    .pos-topbar-info { flex:1 1 100%; min-width:0; }
+    .pos-topbar-title { font-size:15px; }
+    .pos-topbar-empresa { font-size:11px; }
+    .pos-topbar-sep, .pos-shortcuts, .pos-topbar > span { display:none; }
+    .pos-topbar-btn { flex:1 1 calc(33.333% - 4px); min-width:100px; padding:8px 6px; font-size:11px; }
+    .pos-recientes-block.recent-only { display:none; }
+  }
 
   /* Historial */
   .pos-hist-panel { position:fixed; inset:0; background:rgba(6,10,20,0.78); z-index:1000; display:flex; justify-content:flex-end; }
@@ -417,6 +445,8 @@ const S = `
   .pos-hist-tag.sinpe { background:#1a1040; color:#c4b5fd; }
   .pos-hist-print { background:none; border:1px solid rgba(167,139,250,0.3); border-radius:8px; color:#c4b5fd; font-size:11px; font-weight:700; padding:5px 10px; cursor:pointer; white-space:nowrap; transition:all .15s; }
   .pos-hist-print:hover { background:rgba(167,139,250,0.15); border-color:#a78bfa; }
+  .pos-hist-dev { background:none; border:1px solid rgba(251,146,60,0.3); border-radius:8px; color:#fb923c; font-size:11px; font-weight:700; padding:5px 10px; cursor:pointer; white-space:nowrap; transition:all .15s; }
+  .pos-hist-dev:hover { background:rgba(251,146,60,0.12); border-color:#fb923c; }
 
   /* -- Comprobantes FE -- */
   .pos-fe-panel { position:fixed; inset:0; background:rgba(6,10,20,0.78); z-index:1000; display:flex; justify-content:flex-end; }
@@ -546,6 +576,21 @@ const S = `
   .pos-cierre-btn-cerrar { flex:2; padding:12px; border:none; border-radius:11px; background:linear-gradient(135deg,#dc2626,#ef4444); color:white; font-size:14px; font-weight:800; cursor:pointer; transition:opacity .15s; }
   .pos-cierre-btn-cerrar:hover { opacity:.88; }
   .pos-cierre-btn-cerrar:disabled { opacity:.5; cursor:not-allowed; }
+  .pos-overlay,
+  .pos-buscador-overlay,
+  .pos-cli-overlay,
+  .pos-cobro-overlay,
+  .pos-apertura-overlay {
+    padding-top:calc(16px + env(safe-area-inset-top));
+    padding-right:calc(16px + env(safe-area-inset-right));
+    padding-bottom:calc(16px + env(safe-area-inset-bottom));
+    padding-left:calc(16px + env(safe-area-inset-left));
+  }
+  .pos-hist-drawer,
+  .pos-fe-drawer,
+  .pos-cierre-drawer {
+    padding-bottom:calc(20px + env(safe-area-inset-bottom));
+  }
 `
 
 // --- Componente principal -----------------------------------------------------
@@ -661,6 +706,9 @@ document.addEventListener('keydown', function(e){ if(e.key==='Escape') window.cl
   const [alertaMsg, setAlertaMsg] = useState('')
   const [histOpen, setHistOpen] = useState(false)
   const [histVentas, setHistVentas] = useState<any[]>([])
+  const [devModalOpen, setDevModalOpen] = useState(false)
+  const [devVentaId, setDevVentaId] = useState<number | null>(null)
+  const [devMsg, setDevMsg] = useState('')
   const [feOpen, setFeOpen] = useState(false)
   const [feDocs, setFeDocs] = useState<any[]>([])
   const [feLoading, setFeLoading] = useState(false)
@@ -1655,7 +1703,7 @@ ${v.fe_clave ? `<div class="hr"></div><div class="c b" style="font-size:9px">Com
       <div className="pos-root">
         {/* Topbar */}
         <div className="pos-topbar">
-          <div>
+          <div className="pos-topbar-info">
             <div className="pos-topbar-title">POS <span className="pos-sep" /> {terminal.sucursalNombre}</div>
             <div className="pos-topbar-empresa">
               {empresaNombre} <span className="pos-sep" /> {terminal.cajaNombre}
@@ -1752,36 +1800,38 @@ ${v.fe_clave ? `<div class="hr"></div><div class="c b" style="font-size:9px">Com
               )}
             </div>
 
-            {/* Productos recientes */}
-            <div className="pos-section-label">
-              {busqueda ? 'Resultados' : 'Usados recientemente'}
-              {buscando && ` ${UI.mdash} buscando...`}
-            </div>
+            {/* Productos recientes / resultados */}
+            <div className={`pos-recientes-block ${busqueda ? 'searching' : 'recent-only'}`}>
+              <div className="pos-section-label">
+                {busqueda ? 'Resultados' : 'Usados recientemente'}
+                {buscando && ` ${UI.mdash} buscando...`}
+              </div>
 
-            {recientesErr ? (
-              <div style={{ fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 14px' }}>
-                ? {recientesErr}
-              </div>
-            ) : recientes.length > 0 ? (
-              <div className="pos-recientes-grid">
-                {recientes.map((p) => (
-                  <div key={p.id} className="pos-prod-card" onClick={() => {
-                    agregarProducto(p)
-                    barcodeRef.current?.focus()
-                  }}>
-                    <div className="pos-prod-card-name">{p.descripcion}</div>
-                    <div className="pos-prod-card-code">{p.codigo}</div>
-                    <div className="pos-prod-card-price">{CRC}{fmt(p.precio_venta)}</div>
-                    {stockEstadoCajero(p) && <div className="pos-prod-card-stock">{stockEstadoCajero(p)}</div>}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="pos-empty">
-                <div className="pos-empty-icon">{UI.receipt}</div>
-                <div className="pos-empty-text">Empiece a vender para ver los productos recientes</div>
-              </div>
-            )}
+              {recientesErr ? (
+                <div style={{ fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 14px' }}>
+                  ? {recientesErr}
+                </div>
+              ) : recientes.length > 0 ? (
+                <div className="pos-recientes-grid">
+                  {recientes.map((p) => (
+                    <div key={p.id} className="pos-prod-card" onClick={() => {
+                      agregarProducto(p)
+                      barcodeRef.current?.focus()
+                    }}>
+                      <div className="pos-prod-card-name">{p.descripcion}</div>
+                      <div className="pos-prod-card-code">{p.codigo}</div>
+                      <div className="pos-prod-card-price">{CRC}{fmt(p.precio_venta)}</div>
+                      {stockEstadoCajero(p) && <div className="pos-prod-card-stock">{stockEstadoCajero(p)}</div>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="pos-empty">
+                  <div className="pos-empty-icon">{UI.receipt}</div>
+                  <div className="pos-empty-text">Empiece a vender para ver los productos recientes</div>
+                </div>
+              )}
+            </div>
             </div>
 
             {/* Footer con funciones secundarias */}
@@ -2543,8 +2593,14 @@ ${v.fe_clave ? `<div class="hr"></div><div class="c b" style="font-size:9px">Com
                 <span className={`pos-hist-tag ${v.tipo_pago}`}>{v.tipo_pago}</span>
                 <div className="pos-hist-total">{CRC}{fmt(Number(v.total))}</div>
                 <button className="pos-hist-print" onClick={() => reimprimirTiquete(v.id)} title="Reimprimir tiquete">{UI.printer}</button>
+                <button className="pos-hist-dev" onClick={() => { setDevVentaId(v.id); setDevMsg(''); setDevModalOpen(true) }} title="Devolver venta">↩ Dev.</button>
               </div>
             ))}
+            {devMsg && (
+              <div style={{ background:'rgba(52,211,153,0.1)', border:'1px solid rgba(52,211,153,0.25)', borderRadius:'10px', padding:'10px 14px', color:'#34d399', fontSize:'13px', marginBottom:'10px' }}>
+                {devMsg}
+              </div>
+            )}
             {!histVentas.length && (
               <div style={{ fontSize: '13px', color: '#3a4e6e', textAlign: 'center', marginTop: '40px' }}>
                 Sin ventas registradas hoy
@@ -2677,6 +2733,25 @@ ${v.fe_clave ? `<div class="hr"></div><div class="c b" style="font-size:9px">Com
           </div>
         </div>
       , document.body)}
+
+      <DevolucionModal
+        open={devModalOpen}
+        ventaId={devVentaId}
+        empresaId={empresaId}
+        apiBase={API}
+        authHeaders={authHeaders}
+        formatMoney={fmt}
+        onClose={() => setDevModalOpen(false)}
+        onSuccess={(devId, total, tieneFE) => {
+          setDevModalOpen(false)
+          setDevMsg(
+            tieneFE
+              ? `Devolución #${devId} registrada — ₡${fmt(total)} — NC electrónica en proceso`
+              : `Devolución #${devId} registrada — ₡${fmt(total)} — Stock revertido`
+          )
+          cargarHistorial()
+        }}
+      />
 
     </>
   )

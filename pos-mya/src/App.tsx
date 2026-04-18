@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from './lib/supabase'
 import LoginPage from './pages/LoginPage'
 import SetupPage, { getStoredTerminal, type TerminalConfig } from './pages/SetupPage'
@@ -13,11 +13,17 @@ type Session = {
 }
 
 type AppState = 'checking' | 'login' | 'setup' | 'no-terminal' | 'pos'
+type VersionPayload = { version?: string }
+
+const VERSION_URL = '/version.json'
+const VERSION_POLL_MS = 60000
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>('checking')
   const [session, setSession] = useState<Session | null>(null)
   const [terminal, setTerminal] = useState<TerminalConfig | null>(null)
+  const currentVersionRef = useRef<string | null>(null)
+  const reloadPendingRef = useRef(false)
 
   useEffect(() => {
     const stored = localStorage.getItem('pos_session')
@@ -47,6 +53,56 @@ export default function App() {
       }
     } else {
       setAppState('login')
+    }
+  }, [])
+
+  useEffect(() => {
+    let disposed = false
+
+    const reloadNow = () => {
+      if (disposed) return
+      window.location.reload()
+    }
+
+    const tryReloadWhenNotActive = () => {
+      if (disposed || !reloadPendingRef.current) return
+      if (document.visibilityState === 'hidden' || !document.hasFocus()) {
+        reloadNow()
+      }
+    }
+
+    const checkVersion = async () => {
+      try {
+        const resp = await fetch(`${VERSION_URL}?t=${Date.now()}`, { cache: 'no-store' })
+        if (!resp.ok) return
+        const payload = (await resp.json()) as VersionPayload
+        const nextVersion = payload?.version ? String(payload.version) : null
+        if (!nextVersion) return
+
+        if (!currentVersionRef.current) {
+          currentVersionRef.current = nextVersion
+          return
+        }
+
+        if (nextVersion !== currentVersionRef.current) {
+          reloadPendingRef.current = true
+          tryReloadWhenNotActive()
+        }
+      } catch {
+        // Ignorar errores transitorios de red/version endpoint.
+      }
+    }
+
+    const intervalId = window.setInterval(() => { void checkVersion() }, VERSION_POLL_MS)
+    window.addEventListener('visibilitychange', tryReloadWhenNotActive)
+    window.addEventListener('blur', tryReloadWhenNotActive)
+    void checkVersion()
+
+    return () => {
+      disposed = true
+      window.clearInterval(intervalId)
+      window.removeEventListener('visibilitychange', tryReloadWhenNotActive)
+      window.removeEventListener('blur', tryReloadWhenNotActive)
     }
   }, [])
 
@@ -94,7 +150,7 @@ export default function App() {
 
   if (appState === 'checking') {
     return (
-      <div style={{ minHeight: '100vh', background: '#0b1120', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ minHeight: '100dvh', background: '#0b1120', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ color: '#5c7099', fontSize: '14px' }}>Cargando...</div>
       </div>
     )
@@ -106,7 +162,7 @@ export default function App() {
 
   if (appState === 'no-terminal') {
     return (
-      <div style={{ minHeight: '100vh', background: '#0b1120', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ minHeight: '100dvh', background: '#0b1120', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
         <div style={{ background: '#111a2e', border: '1px solid rgba(137,160,201,0.18)', borderRadius: 20, padding: '36px 32px', width: 'min(420px, 96vw)', textAlign: 'center', boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}>
           <div style={{ fontSize: 40, marginBottom: 16 }}>🖥</div>
           <div style={{ fontSize: 18, fontWeight: 800, color: '#f3f7ff', marginBottom: 8 }}>Terminal no configurada</div>
