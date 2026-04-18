@@ -241,6 +241,8 @@ const STYLES = `
   .comb-fact-two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
   .comb-fact-preview { border-radius:0; border:1px solid rgba(71,85,105,.68); overflow:hidden; background:linear-gradient(180deg, rgba(20,27,38,.96) 0%, rgba(12,18,28,.98) 100%); }
   .comb-fact-preview-head { padding:16px 18px; border-bottom:1px solid rgba(51,65,85,.8); background:linear-gradient(90deg, rgba(30,41,59,.92) 0%, rgba(15,23,42,.92) 100%); }
+  .comb-fact-paper-top { display:grid; grid-template-columns:minmax(280px, 1fr) auto auto; gap:16px; align-items:center; }
+  .comb-fact-paper-refresh { display:flex; justify-content:center; }
   .comb-fact-workspace { display:grid; grid-template-columns:minmax(360px, 420px) minmax(0, 1fr); gap:18px; padding:18px; background:
       radial-gradient(circle at top right, rgba(251,146,60,.08), transparent 28%),
       linear-gradient(180deg, rgba(15,23,42,.9) 0%, rgba(2,6,23,.96) 100%); }
@@ -371,6 +373,9 @@ const STYLES = `
     .comb-fact-wrap { padding:12px !important; }
     .comb-fact-title { font-size:22px; }
     .comb-fact-paper-head { padding:16px; }
+    .comb-fact-paper-top { grid-template-columns:1fr; align-items:stretch; }
+    .comb-fact-paper-refresh { justify-content:flex-start; }
+    .comb-fact-paper-refresh .comb-fact-btn { width:100%; }
     .comb-fact-paper-title { font-size:22px; }
     .comb-fact-paper-body { padding:10px; }
     .comb-fact-section-grid { padding:10px; gap:12px; }
@@ -1873,13 +1878,13 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
   const draftWorkspace = (
     <div className="comb-fact-preview comb-fact-paper">
       <div className="comb-fact-preview-head comb-fact-paper-head">
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 1fr) auto auto', gap: 16, alignItems: 'center' }}>
+        <div className="comb-fact-paper-top">
           <div>
             <div className="comb-fact-paper-title">{tipoDocumentoAuto === '04' ? 'Tiquete electronico' : 'Factura electronica'}</div>
             <div className="comb-fact-paper-flow">{flujoReceptor === 'credito' ? 'Credito' : flujoReceptor === 'contado' ? 'Contado' : 'Consumidor final'} · T.C. 1.00 · CRC</div>
             <div className="comb-fact-paper-sub">{editingDocId ? `Editando borrador POS #${editingDocId}` : 'Captura fiscal directa desde combustible.'}</div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <div className="comb-fact-paper-refresh">
             <button
               type="button"
               className="comb-fact-btn secondary"
@@ -2182,24 +2187,11 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
 
   const facturacionMain = (
     <div>
-      <WorkspaceMainPanel
-        title="Ventas recientes"
-        subtitle="Directo desde Fusion PG. Las ya facturadas no aparecen en esta lista."
-      >
+      <WorkspaceMainPanel>
         {ventasAFacturar.length && draft ? (
-          <div className="comb-fact-next-step">
-            <div>
-              <div className="comb-fact-next-step-title">
-                {marcadas.size > 1
-                  ? `${marcadas.size} ventas listas para el siguiente paso`
-                  : `TIQ#${ventasAFacturar[0].sale_id} listo para continuar`}
-              </div>
-              <div className="comb-fact-next-step-sub">
-                La configuracion FE y el detalle completo se revisan en la vista siguiente.
-              </div>
-            </div>
+          <div className="comb-fact-next-step" style={{ justifyContent: 'flex-end' }}>
             <button type="button" className="comb-fact-btn primary" disabled={loading} onClick={abrirVistaBorrador}>
-              Continuar a FE
+              FACTURAR
             </button>
           </div>
         ) : null}
@@ -2530,13 +2522,13 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
         {mobileLayout ? (
           <div style={{ display: 'grid', gap: 14, marginBottom: 14 }}>
             <div>
-              <WorkspaceSidebarSection title="Pendientes" subtitle="Ventas recientes aun sin facturar.">
+              <WorkspaceSidebarSection>
                 <WorkspaceMetric label="Ventas filtradas"  value={ventasFiltradas.length}         accent="#fb923c" />
                 <WorkspaceMetric label="Monto pendiente"   value={money(totalMonto)}              accent="#f8fafc" />
                 <WorkspaceMetric label="Litros pendientes" value={`${qty(totalLitros)} L`}        accent="#86efac" />
               </WorkspaceSidebarSection>
 
-              <WorkspaceSidebarSection title="Filtros" subtitle="Filtra por forma de pago, cliente identificado o texto libre.">
+              <WorkspaceSidebarSection>
                 <div className="comb-fact-field">
                   <label htmlFor="comb-fact-search">Buscar</label>
                   <input
@@ -2559,10 +2551,7 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
                 </label>
               </WorkspaceSidebarSection>
 
-              <WorkspaceSidebarSection
-                title="Factura"
-                subtitle={marcadas.size > 1 ? `Grupo de ${marcadas.size} ventas · ${money(totalAFacturar)}` : ventaSeleccionada ? `Previsualizacion de TIQ#${ventaSeleccionada.sale_id}` : 'Selecciona una tarjeta para modelar el borrador.'}
-              >
+              <WorkspaceSidebarSection>
                 {marcadas.size > 1 && (
                   <div className="comb-fact-grupo-bar">
                     <span>Grupo: {marcadas.size} ventas · {qty(volumenAFacturar)} L · {money(totalAFacturar)}</span>
@@ -2597,13 +2586,13 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
           <WorkspaceShell
             sidebar={(
               <div>
-                <WorkspaceSidebarSection title="Pendientes" subtitle="Ventas recientes aun sin facturar.">
+                <WorkspaceSidebarSection>
                   <WorkspaceMetric label="Ventas filtradas"  value={ventasFiltradas.length}         accent="#fb923c" />
                   <WorkspaceMetric label="Monto pendiente"   value={money(totalMonto)}              accent="#f8fafc" />
                   <WorkspaceMetric label="Litros pendientes" value={`${qty(totalLitros)} L`}        accent="#86efac" />
                 </WorkspaceSidebarSection>
 
-                <WorkspaceSidebarSection title="Filtros" subtitle="Filtra por forma de pago, cliente identificado o texto libre.">
+                <WorkspaceSidebarSection>
                   <div className="comb-fact-field">
                     <label htmlFor="comb-fact-search">Buscar</label>
                     <input
@@ -2626,10 +2615,7 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
                   </label>
                 </WorkspaceSidebarSection>
 
-                <WorkspaceSidebarSection
-                  title="Factura"
-                  subtitle={marcadas.size > 1 ? `Grupo de ${marcadas.size} ventas · ${money(totalAFacturar)}` : ventaSeleccionada ? `Previsualizacion de TIQ#${ventaSeleccionada.sale_id}` : 'Selecciona una tarjeta para modelar el borrador.'}
-                >
+                <WorkspaceSidebarSection>
                   {marcadas.size > 1 && (
                     <div className="comb-fact-grupo-bar">
                       <span>Grupo: {marcadas.size} ventas · {qty(volumenAFacturar)} L · {money(totalAFacturar)}</span>
