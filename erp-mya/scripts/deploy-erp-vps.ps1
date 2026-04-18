@@ -13,7 +13,7 @@ $VPS_PASS = (Get-Content '.secrets/vps-file-sync.env' |
 $PLINK     = 'C:\Program Files\PuTTY\plink.exe'
 $PSCP      = 'C:\Program Files\PuTTY\pscp.exe'
 $BUILD     = 'D:\Proyectos\erp-mya\build'
-$REMOTE    = '/var/www/erp-mya'
+$REMOTE    = '/home/mya-frontend'
 $TARGET    = ($VPS_USER + '@' + $VPS_HOST)
 
 Write-Host '═══════════════════════════════════'

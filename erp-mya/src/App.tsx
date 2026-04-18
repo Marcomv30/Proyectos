@@ -51,6 +51,16 @@ import FacturaExportacionPage from './pages/Facturacion/FacturaExportacionPage';
 import SuperusuarioOperaciones from './pages/Superusuario/SuperusuarioOperaciones';
 import { CierresPOS } from './pages/Contabilidad/CierresPoS';
 import { ConfigPOS } from './pages/Contabilidad/ConfigPoS';
+import DepartamentosCargos from './pages/Planilla/DepartamentosCargos';
+import TasasCCSS from './pages/Planilla/TasasCCSS';
+import RubrosColaborador from './pages/Planilla/RubrosColaborador';
+import Colaboradores from './pages/Planilla/Colaboradores';
+import ControlAsistencia from './pages/Planilla/ControlAsistencia';
+import AusenciasPermisos from './pages/Planilla/AusenciasPermisos';
+import CalculoPlanillas from './pages/Planilla/CalculoPlanillas';
+import PrestacionesLegales from './pages/Planilla/PrestacionesLegales';
+import AccionesPersonal from './pages/Planilla/AccionesPersonal';
+import ReportesPlanilla from './pages/Planilla/ReportesPlanilla';
 
 
 interface Empresa {
@@ -161,7 +171,22 @@ const MENU_CONFIG: MenuModuleConfig[] = [
     ],
   },
   { nombre: 'Inventarios', icono: '📦', id: 'inventarios', route: 'inventarios', permission: { modulo: 'inventarios', accion: 'ver' }, submenus: [] },
-  { nombre: 'Planilla', icono: '🪪', id: 'planilla', route: 'planilla', permission: { modulo: 'planilla', accion: 'ver' }, submenus: [] },
+  {
+    nombre: 'Planilla', icono: '🪪', id: 'planilla', route: 'planilla',
+    permission: { modulo: 'planilla', accion: 'ver' },
+    submenus: [
+      { id: 'colaboradores',    nombre: 'Colaboradores',          icono: '👥', route: 'planilla.colaboradores',    permission: { modulo: 'planilla', accion: 'ver' } },
+      { id: 'departamentos',    nombre: 'Departamentos y Cargos', icono: '🏢', route: 'planilla.departamentos',    permission: { modulo: 'planilla', accion: 'ver' } },
+      { id: 'asistencia',       nombre: 'Control de Asistencia',  icono: '⏱️', route: 'planilla.asistencia',       permission: { modulo: 'planilla', accion: 'ver' } },
+      { id: 'ausencias',        nombre: 'Ausencias y Permisos',   icono: '📅', route: 'planilla.ausencias',        permission: { modulo: 'planilla', accion: 'ver' } },
+      { id: 'planillas',        nombre: 'Cálculo de Planillas',   icono: '💰', route: 'planilla.planillas',        permission: { modulo: 'planilla', accion: 'ver' } },
+      { id: 'prestaciones',     nombre: 'Prestaciones Legales',   icono: '⚖️', route: 'planilla.prestaciones',     permission: { modulo: 'planilla', accion: 'ver' } },
+      { id: 'accion-personal',  nombre: 'Acciones de Personal',   icono: '📋', route: 'planilla.accion-personal',  permission: { modulo: 'planilla', accion: 'ver' } },
+      { id: 'reportes-planilla',nombre: 'Reportes de Planilla',   icono: '📊', route: 'planilla.reportes-planilla',permission: { modulo: 'planilla', accion: 'ver' } },
+      { id: 'rubros',           nombre: 'Rubros Variables',       icono: '💼', route: 'planilla.rubros',           permission: { modulo: 'planilla', accion: 'ver' } },
+      { id: 'tasas-ccss',       nombre: 'Tasas CCSS (Historial)', icono: '📜', route: 'planilla.tasas-ccss',       permission: { modulo: 'planilla', accion: 'ver' } },
+    ],
+  },
   { nombre: 'Activos Fijos', icono: '🏗️', id: 'activos', route: 'activos', permission: { modulo: 'activos', accion: 'ver' }, submenus: [] },
   {
     nombre: 'Cuentas por Cobrar', icono: '🗂️', id: 'cxc', route: 'cxc', permission: { modulo: 'cxc', accion: 'ver' },
@@ -1922,7 +1947,52 @@ function Dashboard({ usuario, empresa, onSalir, permisos, empresasAutorizadas, r
         <FacturaExportacionPage empresaId={empresa.id} canEdit={can('facturacion', 'editar')} />
       )}
 
-{moduloActivo === 'combustible' && canAccess('combustible') && (
+    {moduloActivo === 'planilla' && submenu === '' && (
+      <div>
+        <div className="section-title" style={{ marginBottom: '20px' }}>🪪 Planilla</div>
+        <div className="favoritos-grid">
+          {submenusPermitidos.map(item => (
+            <div key={item.id} className="fav-card" onClick={() => setSubmenu(item.id)}>
+              <div className="fav-icon">{item.icono}</div>
+              <div className="fav-name">{item.nombre}</div>
+              <div className="fav-arrow">Abrir →</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+    {moduloActivo === 'planilla' && submenu === 'colaboradores' && canAccess('planilla.colaboradores') && (
+      <Colaboradores empresaId={empresa.id} canEdit={can('planilla','editar')} empresaNombre={empresa.nombre} />
+    )}
+    {moduloActivo === 'planilla' && submenu === 'departamentos' && canAccess('planilla.departamentos') && (
+      <DepartamentosCargos empresaId={empresa.id} canEdit={can('planilla','editar')} />
+    )}
+    {moduloActivo === 'planilla' && submenu === 'asistencia' && canAccess('planilla.asistencia') && (
+      <ControlAsistencia empresaId={empresa.id} canEdit={can('planilla','editar')} />
+    )}
+    {moduloActivo === 'planilla' && submenu === 'ausencias' && canAccess('planilla.ausencias') && (
+      <AusenciasPermisos empresaId={empresa.id} canEdit={can('planilla','editar')} />
+    )}
+    {moduloActivo === 'planilla' && submenu === 'planillas' && canAccess('planilla.planillas') && (
+      <CalculoPlanillas empresaId={empresa.id} canEdit={can('planilla','editar')} empresaNombre={empresa.nombre} empresaCedula={empresa.cedula} />
+    )}
+    {moduloActivo === 'planilla' && submenu === 'prestaciones' && canAccess('planilla.prestaciones') && (
+      <PrestacionesLegales empresaId={empresa.id} canEdit={can('planilla','editar')} />
+    )}
+    {moduloActivo === 'planilla' && submenu === 'accion-personal' && canAccess('planilla.accion-personal') && (
+      <AccionesPersonal empresaId={empresa.id} canEdit={can('planilla','editar')} />
+    )}
+    {moduloActivo === 'planilla' && submenu === 'reportes-planilla' && canAccess('planilla.reportes-planilla') && (
+      <ReportesPlanilla empresaId={empresa.id} empresaNombre={empresa.nombre} empresaCedula={empresa.cedula ?? undefined} />
+    )}
+    {moduloActivo === 'planilla' && submenu === 'rubros' && canAccess('planilla.rubros') && (
+      <RubrosColaborador empresaId={empresa.id} canEdit={can('planilla','editar')} />
+    )}
+    {moduloActivo === 'planilla' && submenu === 'tasas-ccss' && canAccess('planilla.tasas-ccss') && (
+      <TasasCCSS canEdit={can('planilla','editar')} />
+    )}
+
+    {moduloActivo === 'combustible' && canAccess('combustible') && (
     <CombustibleModule empresaId={empresa.id} onHome={() => setModuloActivo('')} isSuperusuario={esSuperusuario} setNavbarExtra={setNavbarExtra} />
     )}
 

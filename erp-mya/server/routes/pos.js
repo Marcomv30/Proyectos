@@ -1594,11 +1594,23 @@ posRouter.post('/ventas', async (req, res) => {
   }
 
   // Insertar venta
-  const { data: ventaData, error: ventaErr } = await sb
+  const ventaPayload = { ...venta, cajero_id: user.id, sesion_id: sesionId }
+  let { data: ventaData, error: ventaErr } = await sb
     .from('pos_ventas')
-    .insert({ ...venta, cajero_id: user.id, sesion_id: sesionId })
+    .insert(ventaPayload)
     .select()
     .single()
+
+  // Compatibilidad temporal: algunos entornos no tienen la columna referencia_pago.
+  if (ventaErr?.message?.includes('referencia_pago') && Object.prototype.hasOwnProperty.call(ventaPayload, 'referencia_pago')) {
+    const { referencia_pago, ...payloadSinReferencia } = ventaPayload
+    console.warn('[POS] referencia_pago no existe en esquema actual; reintentando inserción sin referencia_pago')
+    ;({ data: ventaData, error: ventaErr } = await sb
+      .from('pos_ventas')
+      .insert(payloadSinReferencia)
+      .select()
+      .single())
+  }
 
   if (ventaErr) return res.json({ ok: false, error: ventaErr.message })
 
@@ -1733,7 +1745,7 @@ posRouter.get('/ventas/hoy', async (req, res) => {
 
   const { data, error } = await sb
     .from('pos_ventas')
-    .select('id, created_at, cliente_nombre, total, tipo_pago, tipo_documento, fe_clave, anulada, cajero_nombre')
+    .select('id, created_at, cliente_nombre, total, tipo_pago, tipo_documento, fe_clave, fe_doc_id, fe_consecutivo, fe_estado, anulada, cajero_nombre')
     .eq('empresa_id', empresaId)
     .eq('anulada', false)
     .gte('created_at', hoy.toISOString())
@@ -1776,6 +1788,24 @@ posRouter.get('/ventas/fe-comprobantes', async (req, res) => {
 
   if (error) return res.json({ ok: false, error: error.message })
   res.json({ ok: true, docs: data || [] })
+})
+
+// Líneas de una venta (para modal de devolución parcial) — debe ir ANTES de /ventas/:id
+posRouter.get('/ventas/:id/lineas', async (req, res) => {
+  const user = await requirePosAuth(req, res)
+  if (!user) return
+
+  const ventaId = Number(req.params.id)
+  const sb = adminSb()
+
+  const { data, error } = await sb
+    .from('pos_venta_lineas')
+    .select('id, producto_id, codigo, descripcion, unidad, cantidad, precio_unit, iva_pct, iva_monto, gravado, exento, total, cabys_code')
+    .eq('venta_id', ventaId)
+    .order('id')
+
+  if (error) return res.json({ ok: false, error: error.message })
+  res.json({ ok: true, lineas: data || [] })
 })
 
 // Detalle de una venta (para reimprimir tiquete) — debe ir DESPUÉS de /ventas/hoy
@@ -2072,6 +2102,198 @@ async function enviarEmailVentaPOS(sb, ventaId, email) {
 }
 
 // Enviar tiquete por email como PDF adjunto
+// ── Devoluciones POS ─────────────────────────────────────────
+// Crea una devolución parcial o total ligada a una venta existente.
+// Si la venta tenía FE aceptada, emite NC electrónica automáticamente.
+posRouter.post('/devoluciones', async (req, res) => {
+  const user = await requirePosAuth(req, res)
+  if (!user) return
+
+  const { empresa_id, venta_id, motivo_codigo, motivo_razon, lineas } = req.body || {}
+  if (!empresa_id || !venta_id || !motivo_codigo || !motivo_razon || !Array.isArray(lineas) || !lineas.length) {
+    return res.status(400).json({ ok: false, error: 'Faltan campos requeridos' })
+  }
+
+  const sb = adminSb()
+
+  // Cargar venta original
+  const { data: venta, error: ventaErr } = await sb
+    .from('pos_ventas')
+    .select('id, empresa_id, fe_doc_id, fe_clave, tipo_documento, cliente_nombre, cliente_cedula, anulada')
+    .eq('id', venta_id)
+    .eq('empresa_id', empresa_id)
+    .maybeSingle()
+
+  if (ventaErr || !venta) return res.status(404).json({ ok: false, error: 'Venta no encontrada' })
+  if (venta.anulada) return res.status(400).json({ ok: false, error: 'La venta ya está anulada' })
+
+  // Calcular totales de las líneas a devolver
+  let subtotal = 0, impuesto = 0, total = 0
+  for (const l of lineas) {
+    const base = Number(l.precio_unit) * Number(l.cantidad)
+    const iva  = Math.round(base * (Number(l.iva_pct) / 100) * 100) / 100
+    subtotal += base
+    impuesto += iva
+    total    += base + iva
+  }
+  subtotal = Math.round(subtotal * 100) / 100
+  impuesto = Math.round(impuesto * 100) / 100
+  total    = Math.round(total    * 100) / 100
+
+  // Insertar encabezado de devolución
+  const { data: dev, error: devErr } = await sb
+    .from('pos_devoluciones')
+    .insert({
+      empresa_id,
+      venta_id,
+      motivo_codigo,
+      motivo_razon,
+      subtotal,
+      impuesto,
+      total,
+      cajero_id:     user.id,
+      cajero_nombre: user.nombre || user.email || '',
+    })
+    .select('id')
+    .single()
+
+  if (devErr) return res.json({ ok: false, error: devErr.message })
+
+  // Insertar líneas de la devolución
+  const lineasInsert = lineas.map((l) => {
+    const base = Math.round(Number(l.precio_unit) * Number(l.cantidad) * 100) / 100
+    const iva  = Math.round(base * (Number(l.iva_pct) / 100) * 100) / 100
+    return {
+      devolucion_id:    dev.id,
+      venta_linea_id:   l.id || null,
+      producto_id:      l.producto_id || null,
+      descripcion:      l.descripcion,
+      cantidad:         Number(l.cantidad),
+      precio_unitario:  Number(l.precio_unit),
+      tarifa_iva:       Number(l.iva_pct),
+      subtotal:         base,
+      impuesto:         iva,
+      total_linea:      base + iva,
+    }
+  })
+
+  await sb.from('pos_devolucion_lineas').insert(lineasInsert)
+
+  // Revertir stock: insertar inv_movimientos tipo 'entrada' por cada línea con producto
+  const movimientos = lineas
+    .filter((l) => l.producto_id)
+    .map((l) => ({
+      empresa_id,
+      fecha: new Date().toISOString().slice(0, 10),
+      tipo: 'entrada',
+      producto_id: l.producto_id,
+      cantidad: Number(l.cantidad),
+      costo_unitario: 0,
+      referencia: `DEV-POS-${dev.id}`,
+      notas: `Devolución POS venta #${venta_id}`,
+    }))
+
+  if (movimientos.length) {
+    await sb.from('inv_movimientos').insert(movimientos)
+  }
+
+  // Si la venta tenía FE aceptada, crear NC electrónica
+  let feDocId = null
+  let feEstado = null
+
+  if (venta.fe_doc_id) {
+    // Cargar fe_documento original para obtener clave_mh, fecha y datos receptor
+    const { data: feOrig } = await sb
+      .from('fe_documentos')
+      .select('id, tipo_documento, clave_mh, fecha_emision, estado_mh, receptor_nombre, receptor_tipo_identificacion, receptor_identificacion, receptor_email, numero_consecutivo')
+      .eq('id', venta.fe_doc_id)
+      .maybeSingle()
+
+    if (feOrig && feOrig.estado_mh === 'aceptado' && feOrig.clave_mh) {
+      // Construir líneas para fe_documento_lineas
+      const feLineas = lineas.map((l, i) => {
+        const base = Math.round(Number(l.precio_unit) * Number(l.cantidad) * 100) / 100
+        const iva  = Math.round(base * (Number(l.iva_pct) / 100) * 100) / 100
+        return {
+          linea:             i + 1,
+          tipo_linea:        'mercaderia',
+          producto_id:       l.producto_id || null,
+          cabys:             l.cabys_code || null,
+          descripcion:       l.descripcion,
+          unidad_medida:     l.unidad || 'Unid',
+          cantidad:          Number(l.cantidad),
+          precio_unitario:   Number(l.precio_unit),
+          descuento_monto:   0,
+          tarifa_iva_codigo: l.iva_pct > 0 ? '08' : '10',
+          tarifa_iva_porcentaje: Number(l.iva_pct),
+          subtotal:          base,
+          impuesto_monto:    iva,
+          total_linea:       base + iva,
+        }
+      })
+
+      // Insertar fe_documento tipo '03' (NC)
+      const { data: feDoc, error: feErr } = await sb
+        .from('fe_documentos')
+        .insert({
+          empresa_id,
+          tipo_documento:              '03',
+          origen:                      'pos',
+          estado:                      'confirmado',
+          auto_emitir:                 true,
+          fecha_emision:               new Date().toISOString().slice(0, 10),
+          moneda:                      'CRC',
+          condicion_venta:             '01',
+          medio_pago:                  '01',
+          receptor_nombre:             feOrig.receptor_nombre || venta.cliente_nombre || 'Consumidor Final',
+          receptor_tipo_identificacion: feOrig.receptor_tipo_identificacion || null,
+          receptor_identificacion:     feOrig.receptor_identificacion || venta.cliente_cedula || null,
+          receptor_email:              feOrig.receptor_email || null,
+          subtotal,
+          total_descuento:             0,
+          total_impuesto:              impuesto,
+          total_comprobante:           total,
+          ref_tipo_doc:                feOrig.tipo_documento || '01',
+          ref_numero:                  feOrig.clave_mh,
+          ref_fecha_emision:           feOrig.fecha_emision,
+          ref_codigo:                  motivo_codigo,
+          ref_razon:                   motivo_razon,
+          ref_doc_id:                  feOrig.id,
+        })
+        .select('id')
+        .single()
+
+      if (!feErr && feDoc) {
+        // Insertar líneas del fe_documento
+        await sb.from('fe_documento_lineas').insert(feLineas.map((fl) => ({ ...fl, documento_id: feDoc.id })))
+
+        feDocId = feDoc.id
+        feEstado = 'pendiente'
+
+        // Actualizar devolución con fe_doc_id
+        await sb.from('pos_devoluciones').update({ fe_doc_id: feDoc.id, fe_estado: 'pendiente' }).eq('id', dev.id)
+
+        // Emitir NC a MH (fire-and-forget, igual que en ventas)
+        try {
+          const emitirUrl = `http://localhost:3001/api/facturacion/emitir/${feDoc.id}`
+          const token = req.headers.authorization || ''
+          fetch(emitirUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: token },
+            body: JSON.stringify({ empresa_id }),
+          }).then(async (r) => {
+            const json = await r.json().catch(() => ({}))
+            const nuevoEstado = json.ok ? (json.estado_mh || 'enviado') : 'error'
+            await sb.from('pos_devoluciones').update({ fe_clave: json.clave || null, fe_estado: nuevoEstado }).eq('id', dev.id)
+          }).catch(() => {})
+        } catch (_) {}
+      }
+    }
+  }
+
+  res.json({ ok: true, devolucion_id: dev.id, fe_doc_id: feDocId, fe_estado: feEstado, total })
+})
+
 posRouter.post('/ventas/email', async (req, res) => {
   const user = await requirePosAuth(req, res)
   if (!user) return

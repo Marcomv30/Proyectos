@@ -34,6 +34,7 @@ import { fusionDirectRouter } from './routes/fusionDirect.js';
 import { frontendDeployRouter } from './routes/frontendDeploy.js';
 import { vpsMonitorRouter } from './routes/vpsMonitor.js';
 import { posRouter } from './routes/pos.js';
+import planillaRouter from './routes/planilla.js';
 import { consolaFusionRouter } from './routes/consolaFusion.js';
 import { consolaCatalogosRouter } from './routes/consolaCatalogos.js';
 import { virRouter, startVirMonitor, setVirBroadcast, finalizarSesionPump } from './services/virMonitor.js';
@@ -147,6 +148,7 @@ app.use('/api/consola/pisteros', virRouter);
 app.use('/api/admin/frontend-deploy', frontendDeployRouter)
 app.use('/api/admin/vps-monitor', vpsMonitorRouter)
 app.use('/api/pos', posRouter)
+app.use('/api/planilla', planillaRouter)
 app.use('/api/brazaletes', brazaletesRouter)
 app.options('/api/pista/*', cors({ origin: true, credentials: false }))
 app.use('/api/pista', cors({ origin: true, credentials: false }), pistaApiRouter)
