@@ -222,12 +222,10 @@ const STYLES = `
   .comb-fact-card-top { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:14px; }
   .comb-fact-sale { font-family:Consolas, monospace; color:#f8fafc; font-size:22px; font-weight:800; }
   .comb-fact-time { font-size:12px; color:#94a3b8; margin-top:3px; }
-  .comb-fact-customer { font-size:15px; color:#f8fafc; font-weight:700; line-height:1.3; margin-bottom:5px; }
-  .comb-fact-customer-sub { font-size:12px; color:#94a3b8; min-height:17px; }
-  .comb-fact-stats { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; margin:14px 0; }
+  .comb-fact-stats { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin:14px 0; }
   .comb-fact-stat { border:1px solid rgba(51,65,85,.8); border-radius:14px; background:rgba(15,23,42,.78); padding:10px 11px; }
   .comb-fact-stat .k { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#94a3b8; margin-bottom:7px; }
-  .comb-fact-stat .v { font-size:17px; font-weight:800; color:#f8fafc; }
+  .comb-fact-stat .v { font-size:25px; line-height:1.1; font-weight:800; color:#f8fafc; display:inline-flex; align-items:center; padding:4px 8px; border-radius:10px; border:1px solid color-mix(in srgb, var(--grade-color, #64748b) 34%, rgba(51,65,85,.82)); background:linear-gradient(120deg, color-mix(in srgb, var(--grade-color, #64748b) 18%, transparent) 0%, color-mix(in srgb, var(--grade-color, #64748b) 10%, transparent) 48%, color-mix(in srgb, var(--grade-color, #64748b) 20%, transparent) 100%); background-size:200% 100%; animation:comb-fact-grade-glow 3.2s ease-in-out infinite; }
   .comb-fact-stat .s { font-size:11px; color:#64748b; margin-top:5px; }
   .comb-fact-meta { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px 12px; margin-top:12px; }
   .comb-fact-meta div { font-size:12px; color:#cbd5e1; }
@@ -305,6 +303,11 @@ const STYLES = `
   .comb-fact-modal-name { color:#f8fafc; font-weight:700; }
   .comb-fact-modal-id { color:#94a3b8; }
   .comb-fact-modal-sub { color:#94a3b8; font-size:11px; }
+  @keyframes comb-fact-grade-glow {
+    0% { background-position:0% 50%; filter:brightness(1); }
+    50% { background-position:100% 50%; filter:brightness(1.06); }
+    100% { background-position:0% 50%; filter:brightness(1); }
+  }
   .comb-fact-paper-line { margin:0; border-top:1px solid var(--card-border); overflow:auto; background:color-mix(in srgb, var(--bg-dark2) 58%, transparent); }
   .comb-fact-paper-line table { width:100%; border-collapse:collapse; min-width:640px; }
   .comb-fact-paper-line th, .comb-fact-paper-line td { padding:12px 14px; border-top:1px solid var(--card-border); font-size:13px; text-align:left; }
@@ -390,6 +393,7 @@ const STYLES = `
     .comb-fact-card button { padding:16px 16px 18px 20px; }
     .comb-fact-sale { font-size:18px; }
     .comb-fact-stats { grid-template-columns:1fr; }
+    .comb-fact-stat .v { font-size:25px; }
     .comb-fact-meta { grid-template-columns:1fr; }
     .comb-fact-box, .comb-fact-editor-panel { padding:12px; }
   }
@@ -2218,9 +2222,13 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
           <div className="comb-fact-grid">
             {ventasPagina.map((venta) => {
               const active = venta.sale_id === selectedSaleId
-              const identified = !!venta.customer_tax_id
+              const gradeColor = COMBUSTIBLE_COLORS[venta.combustible] || '#9ca3af'
               return (
-                <article key={venta.sale_id} className={`comb-fact-card${active ? ' active' : ''}${marcadas.has(venta.sale_id) ? ' marcada' : ''}`}>
+                <article
+                  key={venta.sale_id}
+                  className={`comb-fact-card${active ? ' active' : ''}${marcadas.has(venta.sale_id) ? ' marcada' : ''}`}
+                  style={{ ['--grade-color' as any]: gradeColor }}
+                >
                   <button type="button" onClick={() => { iniciarNuevoBorrador(); setSelectedSaleId(venta.sale_id) }}>
                     <div className="comb-fact-card-top">
                       <div>
@@ -2228,7 +2236,6 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
                         <div className="comb-fact-time">{dateTime(venta.end_at)}</div>
                       </div>
                       <div style={{ display: 'grid', gap: 6, justifyItems: 'end' }}>
-                        <span className={`comb-fact-chip ${identified ? 'green' : 'gray'}`}>{identified ? 'Identificado' : 'Consumidor final'}</span>
                         <span
                           className="comb-fact-chip"
                           style={{
@@ -2242,27 +2249,20 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
                       </div>
                     </div>
 
-                    <div className="comb-fact-customer">{venta.customer_name || 'Consumidor final'}</div>
-                    <div className="comb-fact-customer-sub">{venta.customer_tax_id || 'Sin identificacion registrada'}</div>
-
                     <div className="comb-fact-stats">
                       <div className="comb-fact-stat">
                         <div className="k">Monto</div>
                         <div className="v">{money(venta.money)}</div>
-                        <div className="s">PPU {money(venta.ppu)}</div>
                       </div>
                       <div className="comb-fact-stat">
                         <div className="k">Litros</div>
                         <div className="v">{qty(venta.volume)}</div>
-                        <div className="s">Unidad L</div>
                       </div>
                     </div>
 
                     <div className="comb-fact-meta">
                       <div><b>Bomba</b>{venta.bomba}</div>
-                      <div><b>Origen</b>Fusion</div>
                       <div><b>Pistero</b>{venta.attendant_id || 'No reportado'}</div>
-                      <div><b>Inicio</b>{dateTime(venta.start_at)}</div>
                     </div>
                   </button>
                   <button
