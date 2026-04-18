@@ -226,7 +226,7 @@ const STYLES = `
   .comb-fact-stat { border:1px solid rgba(51,65,85,.8); border-radius:14px; background:rgba(15,23,42,.78); padding:10px 11px; display:flex; flex-direction:column; align-items:center; text-align:center; }
   .comb-fact-stat .k { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#94a3b8; margin-bottom:7px; }
   .comb-fact-stat .v { font-size:25px; line-height:1.1; font-weight:800; color:#f8fafc; display:inline-flex; align-items:center; padding:4px 8px; border-radius:10px; border:1px solid color-mix(in srgb, var(--grade-color, #64748b) 34%, rgba(51,65,85,.82)); background:linear-gradient(120deg, color-mix(in srgb, var(--grade-color, #64748b) 18%, transparent) 0%, color-mix(in srgb, var(--grade-color, #64748b) 10%, transparent) 48%, color-mix(in srgb, var(--grade-color, #64748b) 20%, transparent) 100%); background-size:200% 100%; animation:comb-fact-grade-glow 3.2s ease-in-out infinite; }
-  .comb-fact-stat .v.litros { font-size:21px; }
+  .comb-fact-stat .v.litros { font-size:20px; }
   .comb-fact-stat .s { font-size:11px; color:#64748b; margin-top:5px; }
   .comb-fact-meta { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px 12px; margin-top:12px; }
   .comb-fact-meta div { font-size:12px; color:#cbd5e1; }
@@ -314,12 +314,17 @@ const STYLES = `
     50% { background-position:100% 50%; filter:brightness(1.06); }
     100% { background-position:0% 50%; filter:brightness(1); }
   }
-  .comb-fact-paper-line { margin:0; border-top:1px solid var(--card-border); overflow:auto; background:color-mix(in srgb, var(--bg-dark2) 58%, transparent); }
+  .comb-fact-paper-line { margin:0; border-top:1px solid var(--card-border); overflow:auto; background:
+      radial-gradient(circle at top right, rgba(16,185,129,.08), transparent 36%),
+      linear-gradient(180deg, rgba(7,16,33,.96) 0%, rgba(10,22,42,.94) 100%); box-shadow: inset 0 0 0 1px rgba(51,65,85,.55); }
   .comb-fact-paper-line table { width:100%; border-collapse:collapse; min-width:640px; }
   .comb-fact-paper-line th, .comb-fact-paper-line td { padding:12px 14px; border-top:1px solid var(--card-border); font-size:13px; text-align:left; }
   .comb-fact-paper-line th { border-top:0; background:color-mix(in srgb, var(--bg-dark) 92%, transparent); color:var(--gray-400); font-size:10px; text-transform:uppercase; letter-spacing:.12em; font-weight:800; }
   .comb-fact-paper-line td { color:var(--card-text); }
   .comb-fact-paper-line td:last-child, .comb-fact-paper-line th:last-child { text-align:right; font-family:Consolas, monospace; }
+  .comb-fact-line-row td { background:color-mix(in srgb, var(--line-grade-color, #64748b) 14%, rgba(2,6,23,.55)); }
+  .comb-fact-line-row:hover td { background:color-mix(in srgb, var(--line-grade-color, #64748b) 22%, rgba(2,6,23,.62)); }
+  .comb-fact-line-row td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--line-grade-color, #64748b) 76%, transparent); }
   .comb-fact-detail-layout { display:grid; grid-template-columns:minmax(0, 1.5fr) minmax(300px, 1fr); gap:0; align-items:start; }
   .comb-fact-detail-totals { border-top:1px solid var(--card-border); background:color-mix(in srgb, var(--bg-dark2) 72%, transparent); padding:14px; }
   .comb-fact-paper-footer { padding:0; display:flex; justify-content:flex-end; }
@@ -2158,7 +2163,11 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
                 <thead><tr><th>Detalle agrupado</th><th>Cantidad</th><th>PPU</th><th>Total</th></tr></thead>
                 <tbody>
                   {ventasAFacturar.map(v => (
-                    <tr key={v.sale_id}>
+                    <tr
+                      key={v.sale_id}
+                      className="comb-fact-line-row"
+                      style={{ ['--line-grade-color' as any]: COMBUSTIBLE_COLORS[v.combustible] || '#9ca3af' }}
+                    >
                       <td>{v.combustible} | {v.bomba} · TIQ#{v.sale_id}</td>
                       <td>{qty(v.volume)} L</td>
                       <td>{money(v.ppu)}</td>

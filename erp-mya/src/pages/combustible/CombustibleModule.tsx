@@ -136,7 +136,8 @@ export default function CombustibleModule({ empresaId, onHome, isSuperusuario = 
   const [activo, setActivo] = useState<SubModulo>('home')
   const [facturacionVista, setFacturacionVista] = useState<'bandeja' | 'borrador'>('bandeja')
   const showFacturacionActions = activo === 'facturacion' && facturacionVista === 'bandeja'
-  const contentTopOffset = 72
+  const isFacturacionFullscreen = activo === 'facturacion'
+  const contentTopOffset = isFacturacionFullscreen ? (showFacturacionActions ? 122 : 72) : 0
 
   useEffect(() => {
     if (!setNavbarExtra) return undefined
@@ -181,6 +182,14 @@ export default function CombustibleModule({ empresaId, onHome, isSuperusuario = 
     window.addEventListener('combustible:facturacion-view', onFacturacionView as EventListener)
     return () => window.removeEventListener('combustible:facturacion-view', onFacturacionView as EventListener)
   }, [])
+
+  useEffect(() => {
+    const enabled = activo === 'facturacion'
+    window.dispatchEvent(new CustomEvent('combustible:fullscreen', { detail: { enabled } }))
+    return () => {
+      window.dispatchEvent(new CustomEvent('combustible:fullscreen', { detail: { enabled: false } }))
+    }
+  }, [activo])
 
   if (activo === 'home') {
     return (
@@ -266,52 +275,79 @@ export default function CombustibleModule({ empresaId, onHome, isSuperusuario = 
 
   return (
     <div className="bg-gray-950 text-white font-mono"
-      style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      style={isFacturacionFullscreen
+        ? { position: 'fixed', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', overflow: 'hidden' }
+        : { display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
       <div
         className="bg-gray-900 border-b border-gray-800 px-3 sm:px-4 py-2"
         style={{
           flexShrink: 0,
-          position: 'fixed',
+          position: isFacturacionFullscreen ? 'fixed' : 'sticky',
           top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 55,
+          left: isFacturacionFullscreen ? 0 : undefined,
+          right: isFacturacionFullscreen ? 0 : undefined,
+          zIndex: isFacturacionFullscreen ? 55 : 20,
         }}
       >
         <div className="overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch]">
           <div className="flex items-center justify-between gap-4 min-w-max">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-xs sm:text-sm">
+              <button
+                onClick={onHome}
+                className="text-slate-300 hover:text-white transition-colors"
+              >
+                Home
+              </button>
+              <span className="text-slate-600">/</span>
               <button
                 onClick={() => setActivo('home')}
-                className="inline-flex h-11 min-w-[140px] items-center justify-center text-sm sm:text-base font-semibold text-slate-200 hover:text-white transition-colors px-4 rounded whitespace-nowrap border border-slate-600 bg-slate-900/60 hover:bg-slate-800"
+                className="text-slate-300 hover:text-white transition-colors"
               >
-                VOLVER
+                Combustible
               </button>
-              {showFacturacionActions ? (
-                <>
-                  <button
-                    onClick={() => window.dispatchEvent(new CustomEvent('combustible:facturacion-refrescar'))}
-                    className="inline-flex h-11 min-w-[140px] items-center justify-center text-sm sm:text-base font-semibold text-gray-200 hover:text-white transition-colors px-4 rounded whitespace-nowrap border border-gray-600 bg-gray-900/50 hover:bg-gray-800"
-                  >
-                    REFRESCAR
-                  </button>
-                  <button
-                    onClick={() => window.dispatchEvent(new CustomEvent('combustible:facturacion-facturar'))}
-                    className="inline-flex h-11 min-w-[140px] items-center justify-center text-sm sm:text-base font-semibold text-emerald-100 transition-colors px-4 rounded whitespace-nowrap border border-emerald-500/70 bg-emerald-800/55 hover:bg-emerald-700/65"
-                  >
-                    FACTURAR
-                  </button>
-                </>
-              ) : null}
+              <span className="text-slate-600">/</span>
+              <span className="text-emerald-400 font-semibold whitespace-nowrap">
+                {BREADCRUMB_LABEL[activo] || 'Combustible'}
+              </span>
             </div>
-            <div className="text-sm sm:text-base font-semibold tracking-wide text-slate-100 text-right shrink-0">
-              {activo === 'facturacion' ? 'FE FACTURACION' : (BREADCRUMB_LABEL[activo] || 'COMBUSTIBLE').toUpperCase()}
+            <div className="flex items-center gap-1 min-w-max sm:justify-end">
+              {SUBMODULOS.filter((sm) => sm.disponible && (!sm.soloSuperusuario || isSuperusuario)).map((sm) => (
+                <button
+                  key={sm.id}
+                  onClick={() => setActivo(sm.id)}
+                  className={`
+                    px-3 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap
+                    ${activo === sm.id ? 'text-white' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'}
+                  `}
+                  style={{ minWidth: 90, textAlign: 'center', ...(activo === sm.id ? { background: `${sm.color}33`, color: sm.color } : {}) }}
+                >
+                  {sm.icon} {sm.shortNombre}
+                </button>
+              ))}
             </div>
           </div>
         </div>
+        {showFacturacionActions ? (
+          <div className="overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] mt-2">
+            <div className="flex items-center gap-3 min-w-max">
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('combustible:facturacion-refrescar'))}
+                className="inline-flex h-11 min-w-[140px] items-center justify-center text-sm sm:text-base font-semibold text-gray-200 hover:text-white transition-colors px-4 rounded whitespace-nowrap border border-gray-600 bg-gray-900/50 hover:bg-gray-800"
+              >
+                REFRESCAR
+              </button>
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('combustible:facturacion-facturar'))}
+                className="inline-flex h-11 min-w-[140px] items-center justify-center text-sm sm:text-base font-semibold text-emerald-100 transition-colors px-4 rounded whitespace-nowrap border border-emerald-500/70 bg-emerald-800/55 hover:bg-emerald-700/65"
+              >
+                FACTURAR
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, marginTop: contentTopOffset, overflowY: 'auto' }}>
+      <div style={{ flex: 1, minHeight: 0, marginTop: contentTopOffset, overflowY: isFacturacionFullscreen ? 'auto' : undefined }}>
         {activo === 'dashboard' && <DashboardCombustible empresaId={empresaId} />}
         {activo === 'facturacion' && <FacturacionCombustiblePage empresaId={empresaId} />}
         {activo === 'ventas' && <PlaceholderPage nombre="Registro de ventas" icon="VT" />}
