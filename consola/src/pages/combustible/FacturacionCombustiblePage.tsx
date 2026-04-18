@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { WorkspaceMainPanel, WorkspaceMetric, WorkspaceShell, WorkspaceSidebarSection } from '../../components/WorkspaceShell'
+import { WorkspaceMainPanel } from '../../components/WorkspaceShell'
 import OverlayPortal from '../../components/OverlayPortal'
 import { supabase } from '../../supabase'
 import { FacturaPreviewModal } from '../Facturacion/FacturaPreviewModal'
@@ -727,15 +727,6 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
   const [onlyIdentified, setOnlyIdentified] = useState(false)
   const [paginaVentas, setPaginaVentas]   = useState(0)
   const VENTAS_POR_PAGINA = 12
-  const [mobileLayout, setMobileLayout]   = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 1024 : false))
-
-  useEffect(() => {
-    const onResize = () => setMobileLayout(window.innerWidth < 1024)
-    onResize()
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
-
   useEffect(() => {
     void fetchEmpresaTimeZone(empresaId).then(setEmpresaTimeZone)
   }, [empresaId])
@@ -2525,140 +2516,7 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
       {error ? <div className="comb-fact-warning" style={{ marginBottom: 14 }}>{error}</div> : null}
       {ok && view !== 'borrador' ? <div className="comb-fact-ok" style={{ marginBottom: 14 }}>{ok}</div> : null}
 
-      {view === 'borrador' ? draftWorkspace : (
-      <>
-        {mobileLayout ? (
-          <div style={{ display: 'grid', gap: 14, marginBottom: 14 }}>
-            <div>
-              <WorkspaceSidebarSection>
-                <WorkspaceMetric label="Ventas filtradas"  value={ventasFiltradas.length}         accent="#fb923c" />
-                <WorkspaceMetric label="Monto pendiente"   value={money(totalMonto)}              accent="#f8fafc" />
-                <WorkspaceMetric label="Litros pendientes" value={`${qty(totalLitros)} L`}        accent="#86efac" />
-              </WorkspaceSidebarSection>
-
-              <WorkspaceSidebarSection>
-                <div className="comb-fact-field">
-                  <label htmlFor="comb-fact-search">Buscar</label>
-                  <input
-                    id="comb-fact-search"
-                    className="comb-fact-input"
-                    value={search}
-                    onChange={(e) => setFiltro(() => setSearch(e.target.value))}
-                    placeholder="sale id, cliente, bomba, pistero"
-                  />
-                </div>
-                <div className="comb-fact-field">
-                  <label htmlFor="comb-fact-payment">Forma de pago</label>
-                  <select id="comb-fact-payment" className="comb-fact-select" value={paymentFilter} onChange={(e) => setFiltro(() => setPaymentFilter(e.target.value))}>
-                    {paymentOptions.map((opt) => <option key={opt} value={opt}>{opt === 'all' ? 'Todas' : opt}</option>)}
-                  </select>
-                </div>
-                <label style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, color: '#cbd5e1', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={onlyIdentified} onChange={(e) => setFiltro(() => setOnlyIdentified(e.target.checked))} />
-                  Solo ventas con identificacion del cliente
-                </label>
-              </WorkspaceSidebarSection>
-
-              <WorkspaceSidebarSection>
-                {marcadas.size > 1 && (
-                  <div className="comb-fact-grupo-bar">
-                    <span>Grupo: {marcadas.size} ventas · {qty(volumenAFacturar)} L · {money(totalAFacturar)}</span>
-                    <button onClick={() => setMarcadas(new Set())}>Limpiar</button>
-                  </div>
-                )}
-                {!ventasAFacturar.length || !draft ? (
-                  <div className="comb-fact-empty">Selecciona una venta o marca varias para agrupar.</div>
-                ) : (
-                  <>
-                    <div className="comb-fact-ok" style={{ marginBottom: 12 }}>
-                      {marcadas.size > 1
-                        ? `${marcadas.size} ventas seleccionadas para un solo borrador.`
-                        : `Lista para configurar FE de TIQ#${ventasAFacturar[0].sale_id}.`}
-                    </div>
-                    <div className="comb-fact-meta" style={{ marginTop: 0, marginBottom: 12 }}>
-                      <div><b>Receptor</b>{draft.receptorNombre || 'Consumidor final'}</div>
-                      <div><b>Documento</b>{draft.tipoDocumento === '04' ? 'Tiquete electronico' : 'Factura electronica'}</div>
-                      <div><b>Condicion</b>{draft.condicionVenta === '02' ? 'Credito' : 'Contado'}</div>
-                      <div><b>Medio pago</b>{medioPagoLabel(medioPagoPrincipalDraft)}</div>
-                    </div>
-                    <button type="button" className="comb-fact-btn primary" disabled={loading} onClick={abrirVistaBorrador} style={{ width: '100%' }}>
-                      Configurar FE en vista completa
-                    </button>
-                  </>
-                )}
-              </WorkspaceSidebarSection>
-            </div>
-            {facturacionMain}
-          </div>
-        ) : (
-          <WorkspaceShell
-            sidebar={(
-              <div>
-                <WorkspaceSidebarSection>
-                  <WorkspaceMetric label="Ventas filtradas"  value={ventasFiltradas.length}         accent="#fb923c" />
-                  <WorkspaceMetric label="Monto pendiente"   value={money(totalMonto)}              accent="#f8fafc" />
-                  <WorkspaceMetric label="Litros pendientes" value={`${qty(totalLitros)} L`}        accent="#86efac" />
-                </WorkspaceSidebarSection>
-
-                <WorkspaceSidebarSection>
-                  <div className="comb-fact-field">
-                    <label htmlFor="comb-fact-search">Buscar</label>
-                    <input
-                      id="comb-fact-search"
-                      className="comb-fact-input"
-                      value={search}
-                      onChange={(e) => setFiltro(() => setSearch(e.target.value))}
-                      placeholder="sale id, cliente, bomba, pistero"
-                    />
-                  </div>
-                  <div className="comb-fact-field">
-                    <label htmlFor="comb-fact-payment">Forma de pago</label>
-                    <select id="comb-fact-payment" className="comb-fact-select" value={paymentFilter} onChange={(e) => setFiltro(() => setPaymentFilter(e.target.value))}>
-                      {paymentOptions.map((opt) => <option key={opt} value={opt}>{opt === 'all' ? 'Todas' : opt}</option>)}
-                    </select>
-                  </div>
-                  <label style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, color: '#cbd5e1', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={onlyIdentified} onChange={(e) => setFiltro(() => setOnlyIdentified(e.target.checked))} />
-                    Solo ventas con identificacion del cliente
-                  </label>
-                </WorkspaceSidebarSection>
-
-                <WorkspaceSidebarSection>
-                  {marcadas.size > 1 && (
-                    <div className="comb-fact-grupo-bar">
-                      <span>Grupo: {marcadas.size} ventas · {qty(volumenAFacturar)} L · {money(totalAFacturar)}</span>
-                      <button onClick={() => setMarcadas(new Set())}>Limpiar</button>
-                    </div>
-                  )}
-                  {!ventasAFacturar.length || !draft ? (
-                    <div className="comb-fact-empty">Selecciona una venta o marca varias para agrupar.</div>
-                  ) : (
-                    <>
-                      <div className="comb-fact-ok" style={{ marginBottom: 12 }}>
-                        {marcadas.size > 1
-                          ? `${marcadas.size} ventas seleccionadas para un solo borrador.`
-                          : `Lista para configurar FE de TIQ#${ventasAFacturar[0].sale_id}.`}
-                      </div>
-                      <div className="comb-fact-meta" style={{ marginTop: 0, marginBottom: 12 }}>
-                        <div><b>Receptor</b>{draft.receptorNombre || 'Consumidor final'}</div>
-                        <div><b>Documento</b>{draft.tipoDocumento === '04' ? 'Tiquete electronico' : 'Factura electronica'}</div>
-                        <div><b>Condicion</b>{draft.condicionVenta === '02' ? 'Credito' : 'Contado'}</div>
-                        <div><b>Medio pago</b>{medioPagoLabel(medioPagoPrincipalDraft)}</div>
-                      </div>
-                      <button type="button" className="comb-fact-btn primary" disabled={loading} onClick={abrirVistaBorrador} style={{ width: '100%' }}>
-                        Configurar FE en vista completa
-                      </button>
-                    </>
-                  )}
-                </WorkspaceSidebarSection>
-              </div>
-            )}
-          >
-            {facturacionMain}
-        </WorkspaceShell>
-        )}
-      </>
-      )}
+      {view === 'borrador' ? draftWorkspace : facturacionMain}
 
       {clienteModalOpen && (
         <OverlayPortal>
