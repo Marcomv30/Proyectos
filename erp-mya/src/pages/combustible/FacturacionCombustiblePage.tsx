@@ -702,10 +702,16 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
   const [receptorActividades, setReceptorActividades] = useState<ActividadMh[]>([])
   const [clienteModalOpen, setClienteModalOpen] = useState(false)
   const [bitacoraModalOpen, setBitacoraModalOpen] = useState(false)
+  const [deleteConfirmDoc, setDeleteConfirmDoc] = useState<DocumentoRow | null>(null)
   const [bitacoraSearch, setBitacoraSearch] = useState('')
   const [bitacoraRows, setBitacoraRows]   = useState<ReceptorBitacoraOpt[]>([])
   const [bitacoraLoading, setBitacoraLoading] = useState(false)
   const estadoMhBloqueaEmision = (estado?: string | null) => ['pendiente', 'enviado', 'aceptado', 'rechazado'].includes(String(estado || '').toLowerCase())
+  const canEliminarDocumento = (doc: DocumentoRow) => {
+    const estado = String(doc.estado || '').toLowerCase().trim()
+    const estadoMh = String(doc.estado_mh || '').toLowerCase().trim()
+    return estado === 'borrador' || estadoMh === 'error' || estadoMh === 'rechazado'
+  }
   const showDocFeedback = (docId: number, kind: 'ok' | 'error', message: string) => setDocFeedback({ docId, kind, message })
 
   // Agrupación de ventas para una sola FE
@@ -1362,11 +1368,11 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
   }
 
   const eliminarBorradorReciente = async (doc: DocumentoRow) => {
-    if (doc.estado !== 'borrador') {
-      setError('Solo se pueden eliminar borradores en estado borrador.')
+    if (!canEliminarDocumento(doc)) {
+      setError('Solo se pueden eliminar borradores o documentos con MH en error/rechazado.')
       return
     }
-    if (!window.confirm(`Se eliminara ${doc.numero_consecutivo || `el borrador #${doc.id}`}. Esta accion no se puede deshacer.`)) return
+    setDeleteConfirmDoc(null)
 
     setBusyDocId(doc.id)
     setDocFeedback(null)
@@ -1407,6 +1413,14 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
     } finally {
       setBusyDocId(null)
     }
+  }
+
+  const solicitarEliminarBorradorReciente = (doc: DocumentoRow) => {
+    if (!canEliminarDocumento(doc)) {
+      setError('Solo se pueden eliminar borradores o documentos con MH en error/rechazado.')
+      return
+    }
+    setDeleteConfirmDoc(doc)
   }
 
   const emitirDocumentoEnFirme = async (docId: number, estadoActual: string) => {
@@ -2450,8 +2464,9 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
                   <button
                     type="button"
                     className="comb-fact-btn secondary"
-                    disabled={busyDocId === doc.id || doc.estado !== 'borrador'}
-                    onClick={() => void eliminarBorradorReciente(doc)}
+                    title={!canEliminarDocumento(doc) ? 'Solo disponible para borrador o MH error/rechazado' : undefined}
+                    disabled={busyDocId === doc.id || !canEliminarDocumento(doc)}
+                    onClick={() => solicitarEliminarBorradorReciente(doc)}
                   >
                     {busyDocId === doc.id ? 'Procesando...' : 'Eliminar'}
                   </button>
@@ -2481,6 +2496,37 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
       {error ? <div className="comb-fact-warning" style={{ marginBottom: 14 }}>{error}</div> : null}
 
       {view === 'borrador' ? draftWorkspace : facturacionMain}
+
+      {deleteConfirmDoc && (
+        <div className="comb-fact-modal-backdrop" onClick={() => setDeleteConfirmDoc(null)}>
+          <div className="comb-fact-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="comb-fact-modal-head">
+              <div className="comb-fact-modal-title">Confirmar eliminacion</div>
+              <button type="button" className="comb-fact-btn secondary" onClick={() => setDeleteConfirmDoc(null)}>Cerrar</button>
+            </div>
+            <div className="comb-fact-modal-body">
+              <div className="comb-fact-modal-content">
+                <div className="comb-fact-warning" style={{ marginBottom: 8 }}>
+                  Se eliminara {deleteConfirmDoc.numero_consecutivo || `el borrador #${deleteConfirmDoc.id}`}. Esta accion no se puede deshacer.
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <button type="button" className="comb-fact-btn secondary" onClick={() => setDeleteConfirmDoc(null)}>
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="comb-fact-btn primary"
+                    disabled={busyDocId === deleteConfirmDoc.id}
+                    onClick={() => void eliminarBorradorReciente(deleteConfirmDoc)}
+                  >
+                    {busyDocId === deleteConfirmDoc.id ? 'Eliminando...' : 'Si, eliminar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {clienteModalOpen && (
         <div className="comb-fact-modal-backdrop" onClick={() => setClienteModalOpen(false)}>

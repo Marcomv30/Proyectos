@@ -3408,13 +3408,12 @@ function AppShell({
     setRoute(key);
     setSidebarOpen(false);
   }
-  const isCombustibleRoute = route === 'dashboard';
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-950 text-slate-100">
 
       {/* ── Header 44px ──────────────────────────────────────────────────────── */}
-      {!isCombustibleRoute && <header
+      <header
         className="sticky top-0 z-40 flex shrink-0 items-center justify-between gap-3 border-b border-slate-800 bg-slate-900 px-3 sm:px-4"
         style={{ minHeight: '44px' }}
       >
@@ -3473,13 +3472,13 @@ function AppShell({
             <span className="hidden sm:inline">Salir</span>
           </button>
         </div>
-      </header>}
+      </header>
 
       {/* ── Body ─────────────────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
 
         {/* Overlay móvil */}
-        {!isCombustibleRoute && sidebarOpen && (
+        {sidebarOpen && (
           <div
             className="fixed inset-0 z-20 bg-black/70 md:hidden"
             onClick={() => setSidebarOpen(false)}
@@ -3487,7 +3486,7 @@ function AppShell({
         )}
 
         {/* Sidebar */}
-        {!isCombustibleRoute && <aside
+        <aside
           className={`fixed left-0 top-[44px] z-30 flex h-[calc(100vh-44px)] max-w-[86vw] flex-col border-r border-slate-800 bg-slate-900 transition-all duration-200
             ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
             md:static md:z-auto md:h-auto md:translate-x-0`}
@@ -3608,10 +3607,10 @@ function AppShell({
               {!sidebarCollapsed && 'Cerrar sesion'}
             </button>
           </div>
-        </aside>}
+        </aside>
 
         {/* Botón X móvil */}
-        {!isCombustibleRoute && sidebarOpen && (
+        {sidebarOpen && (
           <button
             className="fixed right-4 top-[54px] z-40 rounded-full border border-slate-700 bg-slate-900 p-1.5 text-slate-400 md:hidden"
             onClick={() => setSidebarOpen(false)}
@@ -3622,13 +3621,13 @@ function AppShell({
         )}
 
         {/* Contenido */}
-        <div className={`flex-1 ${isCombustibleRoute ? 'overflow-hidden' : 'overflow-auto'}`}>
+        <div className="flex-1 overflow-auto">
           {error ? (
             <div className="mx-4 mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 sm:mx-6">
               {error}
             </div>
           ) : null}
-          <main className={isCombustibleRoute ? 'h-full' : 'px-3 py-4 sm:px-6 sm:py-5'}>
+          <main className="px-3 py-4 sm:px-6 sm:py-5">
             {route === 'dashboard' ? (
               <CombustibleModule
                 empresaId={login.empresaId}
