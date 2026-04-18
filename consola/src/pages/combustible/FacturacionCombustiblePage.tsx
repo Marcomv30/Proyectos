@@ -203,7 +203,7 @@ const STYLES = `
   .comb-fact-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:14px; }
   .comb-fact-card { position:relative; overflow:hidden; border-radius:22px; border:1px solid rgba(71,85,105,.7); background:linear-gradient(180deg, rgba(20,27,38,.98) 0%, rgba(12,18,28,.98) 100%); box-shadow:0 18px 40px rgba(0,0,0,.24); transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
   .comb-fact-card::before { content:''; position:absolute; inset:0 auto 0 0; width:7px; background:linear-gradient(180deg, #fb923c 0%, #facc15 55%, #22c55e 100%); }
-  .comb-fact-card.active { border-color:rgba(251,146,60,.78); box-shadow:0 22px 44px rgba(251,146,60,.12); transform:translateY(-2px); }
+  .comb-fact-card.active { border-color:rgba(251,146,60,.92); box-shadow:0 22px 44px rgba(251,146,60,.18), 0 0 0 1px rgba(251,146,60,.34); transform:translateY(-2px); animation:comb-fact-selected-pulse 1.6s ease-in-out infinite; }
   .comb-fact-card.marcada { border-color:rgba(251,191,36,.7); box-shadow:0 0 0 1px rgba(251,191,36,.25), 0 18px 40px rgba(0,0,0,.24); }
   .comb-fact-card.marcada::before { background:linear-gradient(180deg, #f59e0b 0%, #fbbf24 55%, #fb923c 100%); }
   .comb-fact-card:hover { transform:translateY(-2px); border-color:rgba(148,163,184,.92); }
@@ -224,9 +224,10 @@ const STYLES = `
   .comb-fact-sale { font-family:Consolas, monospace; color:#f8fafc; font-size:22px; font-weight:800; }
   .comb-fact-time { font-size:12px; color:#94a3b8; margin-top:3px; }
   .comb-fact-stats { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin:14px 0; }
-  .comb-fact-stat { border:1px solid rgba(51,65,85,.8); border-radius:14px; background:rgba(15,23,42,.78); padding:10px 11px; }
+  .comb-fact-stat { border:1px solid rgba(51,65,85,.8); border-radius:14px; background:rgba(15,23,42,.78); padding:10px 11px; display:flex; flex-direction:column; align-items:center; text-align:center; }
   .comb-fact-stat .k { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#94a3b8; margin-bottom:7px; }
   .comb-fact-stat .v { font-size:25px; line-height:1.1; font-weight:800; color:#f8fafc; display:inline-flex; align-items:center; padding:4px 8px; border-radius:10px; border:1px solid color-mix(in srgb, var(--grade-color, #64748b) 34%, rgba(51,65,85,.82)); background:linear-gradient(120deg, color-mix(in srgb, var(--grade-color, #64748b) 18%, transparent) 0%, color-mix(in srgb, var(--grade-color, #64748b) 10%, transparent) 48%, color-mix(in srgb, var(--grade-color, #64748b) 20%, transparent) 100%); background-size:200% 100%; animation:comb-fact-grade-glow 3.2s ease-in-out infinite; }
+  .comb-fact-stat .v.litros { font-size:21px; }
   .comb-fact-stat .s { font-size:11px; color:#64748b; margin-top:5px; }
   .comb-fact-meta { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px 12px; margin-top:12px; }
   .comb-fact-meta div { font-size:12px; color:#cbd5e1; }
@@ -304,6 +305,11 @@ const STYLES = `
   .comb-fact-modal-name { color:#f8fafc; font-weight:700; }
   .comb-fact-modal-id { color:#94a3b8; }
   .comb-fact-modal-sub { color:#94a3b8; font-size:11px; }
+  @keyframes comb-fact-selected-pulse {
+    0% { box-shadow:0 22px 44px rgba(251,146,60,.16), 0 0 0 1px rgba(251,146,60,.28); }
+    50% { box-shadow:0 26px 52px rgba(251,146,60,.3), 0 0 0 2px rgba(251,146,60,.52); }
+    100% { box-shadow:0 22px 44px rgba(251,146,60,.16), 0 0 0 1px rgba(251,146,60,.28); }
+  }
   @keyframes comb-fact-grade-glow {
     0% { background-position:0% 50%; filter:brightness(1); }
     50% { background-position:100% 50%; filter:brightness(1.06); }
@@ -2264,7 +2270,7 @@ export default function FacturacionCombustiblePage({ empresaId }: Props) {
                       </div>
                       <div className="comb-fact-stat">
                         <div className="k">Litros</div>
-                        <div className="v">{qty(venta.volume)}</div>
+                        <div className="v litros">{qty(venta.volume)}</div>
                       </div>
                     </div>
 
