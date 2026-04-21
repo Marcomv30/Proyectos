@@ -24,6 +24,7 @@ import {
   FileImage,
   Save,
   ArrowLeft,
+  Clock,
 } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { useEmpresaId } from '../../context/EmpresaContext';
@@ -46,6 +47,48 @@ import {
   inputCls,
   labelCls,
 } from '../../components/ui';
+import {
+  uploadDronPhoto,
+  saveDronPhotoMetadata,
+  uploadMosaicJpeg,
+  saveMosaicResult,
+  generateSessionId,
+} from '../../utils/dronStorage';
+import {
+  downloadGeoJSON,
+  downloadGeoJPEG,
+} from '../../utils/geoTiffExport';
+import {
+  detectBlurryPhotos,
+  detectDarkOrBrightPhotos,
+  detectCloudyPhotos,
+  calculateCoverageMetrics,
+  reorderByOverlap,
+  applyHomography,
+  matchHistograms,
+  matchHistogramsToReference,
+  validateAlignmentByFieldLines,
+  ALIGNMENT_QUALITY_CONFIG,
+  type AlignmentQuality,
+  type CoverageMetrics,
+} from '../../utils/mosaicQuality';
+import {
+  extractFeatures,
+  matchFeatures,
+  calculateHomography,
+  type AlignmentTransform,
+} from '../../utils/featureAlignment';
+import { SessionHistoryPanel } from '../../components/SessionHistoryPanel';
+import { AdvancedSettingsModal } from '../../components/AdvancedSettingsModal';
+import { MosaicEditorPanel } from '../../components/MosaicEditorPanel';
+import {
+  loadSessionHistory,
+  saveSession,
+  loadSettingsFromLocalStorage,
+  saveSettingsToLocalStorage,
+  type AdvancedSettings,
+  type SessionRecord,
+} from '../../utils/sessionManagement';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -1371,7 +1414,7 @@ export default function DronMosaicoLab() {
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState({ done: 0, total: 0 });
   const [scanPhase, setScanPhase] = useState('');   // 'Muestra…' | 'Cargando…' | ''
-  const [smartLimit, setSmartLimit] = useState(300);
+  const [smartLimit, setSmartLimit] = useState(600);
   const [ignoredCount, setIgnoredCount] = useState(0);
   const [opacity, setOpacity] = useState(DEFAULT_OPACITY);
   const [hfovDeg, setHfovDeg] = useState(DEFAULT_HFOV);
@@ -1405,10 +1448,39 @@ export default function DronMosaicoLab() {
   const [generatingMosaic, setGeneratingMosaic] = useState(false);
   const [mosaicProgress, setMosaicProgress] = useState({ done: 0, total: 0 });
 
+  // Fase 2: Storage upload
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
+  const [mosaicResult, setMosaicResult] = useState<{ sessionId: string; mosaicUrl: string } | null>(null);
+  const photosToUploadRef = useRef<PhotoMeta[]>([]);
+
   // GeoTIFF externo — múltiples capas
   const [geotiffLayers, setGeotiffLayers] = useState<GeoTiffLayer[]>([]);
   const [geotiffLoading, setGeotiffLoading] = useState(false);
   const geotiffInputRef = useRef<HTMLInputElement>(null);
+
+  // FASE 4: Historial, settings avanzados, editor
+  const [activeTab, setActiveTab] = useState<'generate' | 'history' | 'editor'>('generate');
+  const [sessionHistory, setSessionHistory] = useState<SessionRecord[]>([]);
+  const [advancedSettings, setAdvancedSettings] = useState<AdvancedSettings>(
+    loadSettingsFromLocalStorage()
+  );
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [mosaicEditor, setMosaicEditor] = useState<{
+    active: boolean;
+    cropBounds?: [[number, number], [number, number]];
+    brightness: number;
+    contrast: number;
+    saturation: number;
+  } | null>(null);
+
+  // Mejora de Calidad del Mosaico
+  const [alignmentQuality, setAlignmentQuality] = useState<AlignmentQuality>('normal');
+  const [filterBlurry, setFilterBlurry] = useState(true);
+  const [rejectedPhotos, setRejectedPhotos] = useState<string[]>([]);
+  const [coverageMetrics, setCoverageMetrics] = useState<CoverageMetrics | null>(null);
+  const [showCoverageAnalysis, setShowCoverageAnalysis] = useState(false);
+  const [autoQualityEnabled, setAutoQualityEnabled] = useState(true);
 
   const mapRef = useRef<L.Map | null>(null);
   const boundsRef = useRef<LatLngBounds | null>(null);
@@ -1473,6 +1545,109 @@ export default function DronMosaicoLab() {
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     setSessionSavedAt(savedAt);
   }, [lotes, zonas, geotiffLayers]);
+
+  // ── FASE 4: Cargar historial de sesiones al montar ──────────────────────
+  useEffect(() => {
+    (async () => {
+      const history = await loadSessionHistory(empresaId);
+      setSessionHistory(history);
+    })();
+  }, [empresaId]);
+
+  // ── FASE 4: Guardar settings en localStorage cuando cambian ──────────────
+  useEffect(() => {
+    saveSettingsToLocalStorage(advancedSettings);
+  }, [advancedSettings]);
+
+  // ── Mejora C: Calcular métricas de cobertura cuando cambian fotos ────────
+  useEffect(() => {
+    if (photos.length === 0) {
+      setCoverageMetrics(null);
+      return;
+    }
+
+    // Calcular área aproximada (será reemplazada por areaHa cuando se compute)
+    let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+    for (const p of photos) {
+      minLat = Math.min(minLat, p.lat);
+      maxLat = Math.max(maxLat, p.lat);
+      minLng = Math.min(minLng, p.lng);
+      maxLng = Math.max(maxLng, p.lng);
+    }
+    const approxArea = (maxLat - minLat) * (maxLng - minLng) * 111320 * 111320 / 10000 / 1000000;
+
+    const metrics = calculateCoverageMetrics(
+      photos.map(p => ({ lat: p.lat, lng: p.lng, alt: p.alt })),
+      approxArea || 1
+    );
+    setCoverageMetrics(metrics);
+
+    // Auto-seleccionar calidad si está habilitado
+    if (autoQualityEnabled) {
+      setAlignmentQuality(metrics.recommendedQuality);
+    }
+  }, [photos, autoQualityEnabled]);
+
+  // ── Deduplicación: Eliminar fotos redundantes por cobertura ─────────────
+
+  const deduplicatePhotosByArea = useCallback((photoList: PhotoMeta[]): PhotoMeta[] => {
+    if (photoList.length < 2) return photoList;
+
+    console.log(`[DEDUP] Iniciando: ${photoList.length} fotos...`);
+
+    // Cálculo de área para bounding box
+    const getArea = (bounds: [[number, number], [number, number]]) => {
+      const [[lat1, lng1], [lat2, lng2]] = bounds;
+      return Math.abs((lat2 - lat1) * (lng2 - lng1));
+    };
+
+    // Función para calcular intersección entre dos áreas
+    const getIntersectionArea = (
+      bounds1: [[number, number], [number, number]],
+      bounds2: [[number, number], [number, number]]
+    ): number => {
+      const [[lat1a, lng1a], [lat2a, lng2a]] = bounds1;
+      const [[lat1b, lng1b], [lat2b, lng2b]] = bounds2;
+
+      const latIntersect = Math.max(0, Math.min(lat2a, lat2b) - Math.max(lat1a, lat1b));
+      const lngIntersect = Math.max(0, Math.min(lng2a, lng2b) - Math.max(lng1a, lng1b));
+
+      return latIntersect * lngIntersect;
+    };
+
+    // Ordenar por altitud (fotos más altas primero = mejor cobertura)
+    const sorted = [...photoList].sort((a, b) => (b.alt || 0) - (a.alt || 0));
+
+    const kept: PhotoMeta[] = [];
+    let cumulativeArea: Array<[[number, number], [number, number]]> = [];
+
+    for (const photo of sorted) {
+      const photoArea = getArea(photo.bounds);
+
+      // Calcular área ya cubierta que se solapa con esta foto
+      let overlapArea = 0;
+      for (const prevBounds of cumulativeArea) {
+        overlapArea += getIntersectionArea(photo.bounds, prevBounds);
+      }
+
+      // Calcular área NUEVA que agrega
+      const newArea = photoArea - overlapArea;
+      const percentageNew = (newArea / photoArea) * 100;
+
+      if (percentageNew >= 5) {
+        // Foto agrega >5% cobertura nueva → MANTENER
+        kept.push(photo);
+        cumulativeArea.push(photo.bounds);
+        console.log(`[DEDUP] ✓ ${photo.name}: ${percentageNew.toFixed(1)}% nuevo → MANTENER`);
+      } else {
+        // Foto es redundante → DESCARTAR
+        console.log(`[DEDUP] ✗ ${photo.name}: ${percentageNew.toFixed(1)}% nuevo → DESCARTAR`);
+      }
+    }
+
+    console.log(`[DEDUP] Resultado: ${kept.length}/${photoList.length} fotos (eliminadas ${photoList.length - kept.length} redundantes)`);
+    return kept;
+  }, []);
 
   // ── File scanning ────────────────────────────────────────────────────────
 
@@ -1653,7 +1828,10 @@ export default function DronMosaicoLab() {
       newUrls.set(p.name, URL.createObjectURL(p.file));
     });
 
-    setPhotos(results);
+    // ── DEDUPLICACIÓN: Eliminar fotos redundantes por cobertura ──────────
+    const dedupedPhotos = deduplicatePhotosByArea(results);
+
+    setPhotos(dedupedPhotos);
     setIgnoredCount(ignored);
     setScanning(false);
     setScanPhase('');
@@ -1876,12 +2054,80 @@ export default function DronMosaicoLab() {
 
   const generateMosaic = useCallback(async () => {
     if (!photos.length) return;
+
+    // Fase 2: Generar sessionId para esta generación
+    const newSessionId = generateSessionId();
+    setSessionId(newSessionId);
+    setMosaicResult(null);
     setGeneratingMosaic(true);
     setMosaicProgress({ done: 0, total: photos.length });
+    setUploadProgress({ done: 0, total: photos.length });
+    setRejectedPhotos([]);
+
+    // ── 0. Filtrado de Calidad (si está habilitado) ───────────────────────────
+    let workingPhotos = photos;
+    const qualityConfig = ALIGNMENT_QUALITY_CONFIG[alignmentQuality];
+
+    if (filterBlurry && qualityConfig.filterBlurry) {
+      console.log('[CALIDAD] Detectando fotos borrosas...');
+      const { clean: cleanPhotos, blurry } = await detectBlurryPhotos(
+        photos.map(p => ({ file: p.file, name: p.name }))
+      );
+      if (blurry.length > 0) {
+        console.log(`[CALIDAD] Descartadas ${blurry.length} fotos borrosas`);
+        setRejectedPhotos(prev => [...prev, ...blurry]);
+        workingPhotos = photos.filter((_, i) =>
+          cleanPhotos.some(c => c.file === photos[i].file)
+        );
+      }
+    }
+
+    if (filterBlurry && qualityConfig.filterDark) {
+      console.log('[CALIDAD] Detectando fotos oscuras/sobrexpuestas...');
+      const filePhotos = workingPhotos.map(p => ({ file: p.file, name: p.name }));
+      const { valid: validPhotos, rejected } = await detectDarkOrBrightPhotos(filePhotos);
+      if (rejected.length > 0) {
+        console.log(`[CALIDAD] Descartadas ${rejected.length} fotos oscuras/sobrexpuestas`);
+        setRejectedPhotos(prev => [...prev, ...rejected]);
+        workingPhotos = workingPhotos.filter((_, i) =>
+          validPhotos.some(c => c.file === workingPhotos[i].file)
+        );
+      }
+    }
+
+    // Detectar nubes (opcional, pero recomendado)
+    if (filterBlurry && qualityConfig.filterDark) {
+      console.log('[CALIDAD] Detectando nubes...');
+      const filePhotos = workingPhotos.map(p => ({ file: p.file, name: p.name }));
+      const { valid: validPhotos, cloudy, dark } = await detectCloudyPhotos(filePhotos);
+      if (cloudy.length > 0 || dark.length > 0) {
+        console.log(
+          `[CALIDAD] Descartadas ${cloudy.length} nubladas, ${dark.length} sombríos`
+        );
+        if (cloudy.length > 0) setRejectedPhotos(prev => [...prev, ...cloudy]);
+        if (dark.length > 0) setRejectedPhotos(prev => [...prev, ...dark]);
+        workingPhotos = workingPhotos.filter((_, i) =>
+          validPhotos.some(c => c.file === workingPhotos[i].file)
+        );
+      }
+    }
+
+    if (workingPhotos.length === 0) {
+      alert('❌ Todas las fotos fueron descartadas por baja calidad. Desactiva el filtro.');
+      setGeneratingMosaic(false);
+      return;
+    }
+
+    if (workingPhotos.length < photos.length) {
+      alert(
+        `⚠️ ${photos.length - workingPhotos.length} fotos descartadas por baja calidad.\n` +
+        `Generando mosaico con ${workingPhotos.length} fotos.`
+      );
+    }
 
     // ── 1. Bounding box con 5% de padding ────────────────────────────────────
     let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
-    for (const p of photos) {
+    for (const p of workingPhotos) {
       if (p.lat < minLat) minLat = p.lat;
       if (p.lat > maxLat) maxLat = p.lat;
       if (p.lng < minLng) minLng = p.lng;
@@ -1920,8 +2166,55 @@ export default function DronMosaicoLab() {
     const ctx = canvas.getContext('2d');
     if (!ctx) { setGeneratingMosaic(false); return; }
 
-    // ── 4. Ordenar fotos por altitud DESC (vistas amplias primero, detalle encima)
-    const sorted = [...photos].sort((a, b) => (b.alt || 0) - (a.alt || 0));
+    // ── 4. Ordenamiento inteligente: centroide + cobertura + altitud ────────────
+    //       - Foto más central primero (mejor alineación)
+    //       - Fotos con más neighbors (solapan más) en medio
+    //       - Vistas amplias (alta altitud) de fondo
+    const centerLat = workingPhotos.reduce((s, p) => s + p.lat, 0) / workingPhotos.length;
+    const centerLng = workingPhotos.reduce((s, p) => s + p.lng, 0) / workingPhotos.length;
+
+    // Calcular distancia al centroide para cada foto
+    const withDistance = workingPhotos.map((p, i) => {
+      const dLat = p.lat - centerLat;
+      const dLng = p.lng - centerLng;
+      const dist = Math.sqrt(dLat * dLat + dLng * dLng);
+      return { ...p, _idx: i, _dist: dist };
+    });
+
+    // Calcular neighbors (solapamiento con otras fotos)
+    const neighbors = withDistance.map(p => {
+      let count = 0;
+      for (const q of withDistance) {
+        if (p._idx === q._idx) continue;
+        const d = haversineDistance(p.lat, p.lng, q.lat, q.lng);
+        if (d < 200) count++; // si está a menos de 200m, es neighbor
+      }
+      return count;
+    });
+
+    // Ordenar: primero por distancia al centroide (ascendente),
+    //         luego por cantidad de neighbors (descendente — más solapamiento),
+    //         finalmente por altitud (descendente — vistas amplias primero)
+    let sorted = withDistance
+      .map((p, i) => ({ ...p, _neighbors: neighbors[i] }))
+      .sort((a, b) => {
+        if (Math.abs(a._dist - b._dist) > 0.0001) {
+          return a._dist - b._dist; // más cercano primero
+        }
+        if (b._neighbors !== a._neighbors) {
+          return b._neighbors - a._neighbors; // más neighbors primero
+        }
+        return (b.alt || 0) - (a.alt || 0); // altitud DESC (fondos amplios)
+      });
+
+    // Si calidad es 'precision', aplicar reordenamiento por solapamiento real
+    if (alignmentQuality === 'precision' && qualityConfig.reorderIterations > 0) {
+      console.log('[CALIDAD] Reordenando fotos por solapamiento real...');
+      sorted = await reorderByOverlap(sorted, 0.5); // 50% sample
+    }
+
+    // Guardar en ref para usarlas en uploadPhotosBackground
+    photosToUploadRef.current = sorted;
 
     // ── 5. Calcular luminosidad media de cada foto (normalización de exposición)
     //       Se hace en canvas temporal 64×64 para velocidad
@@ -1960,11 +2253,129 @@ export default function DronMosaicoLab() {
     const globalMean = luminances.reduce((s, l) => s + l, 0) / luminances.length;
     const expFactors = luminances.map(l => l > 0 ? Math.min(globalMean / l, 2.5) : 1);
 
-    // ── 6. Dibujar fotos con feather blending ────────────────────────────────
-    //       Cada foto se dibuja en un canvas temporal; se aplica máscara de
-    //       gradiente radial en los bordes (feather) antes de componer.
-    const FEATHER = 0.15; // 15% de cada dimensión = zona de fundido suave
-    const BATCH = 6;      // lotes más pequeños → UI más fluida
+    // ── 6. Dibujar fotos con feather blending inteligente ──────────────────────
+    //       Máscara radial adaptable según calidad
+    //       Histogram matching + perspectiva correcta si calidad >= normal
+    //       Feature Matching para alineación sub-píxel en modo ultra
+    const FEATHER = qualityConfig.featherStrength; // Adaptable según calidad
+    const FEATHER_INNER = 0.02; // núcleo muy pequeño
+    const BATCH = qualityConfig.useFeatureMatching ? 1 : qualityConfig.perspectiveCorrection ? 3 : 5;
+
+    // Función para verificar solapamiento real entre dos fotos
+    function photosOverlap(p1: PhotoMeta, p2: PhotoMeta, overlapThreshold = 0.1): boolean {
+      // Calcular área de solapamiento basada en bounds GPS
+      const [[lat1Min, lng1Min], [lat1Max, lng1Max]] = p1.bounds;
+      const [[lat2Min, lng2Min], [lat2Max, lng2Max]] = p2.bounds;
+
+      // Intersección
+      const latIntersect = Math.max(0, Math.min(lat1Max, lat2Max) - Math.max(lat1Min, lat2Min));
+      const lngIntersect = Math.max(0, Math.min(lng1Max, lng2Max) - Math.max(lng1Min, lng2Min));
+
+      if (latIntersect <= 0 || lngIntersect <= 0) return false;
+
+      // Área de solapamiento
+      const intersectArea = latIntersect * lngIntersect;
+      // Área mínima de cada foto
+      const area1 = (lat1Max - lat1Min) * (lng1Max - lng1Min);
+      const area2 = (lat2Max - lat2Min) * (lng2Max - lng2Min);
+      const minArea = Math.min(area1, area2);
+
+      return minArea > 0 && intersectArea / minArea > overlapThreshold;
+    }
+
+    // Pre-calcular alineaciones (Feature Matching) si está habilitado
+    let alignmentCache: Map<string, AlignmentTransform> = new Map();
+    if (qualityConfig.useFeatureMatching) {
+      console.log(`[FEATURE-MATCHING] Calculando alineaciones para pares solapados...`);
+      // Calcular alineaciones SOLO para pares que se solapan realmente
+      let overlapCount = 0;
+      for (let i = 0; i < sorted.length - 1; i++) {
+        // Verificar solapamiento
+        if (!photosOverlap(sorted[i], sorted[i + 1], 0.15)) {
+          console.log(`[FM-OVERLAP] Pair ${i}-${i + 1} NO SOLAPAN - ignorar`);
+          continue;
+        }
+        overlapCount++;
+
+        try {
+          const img1 = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+              console.log(`[FM-FEAT] img[${i}] cargada: ${img.naturalWidth}×${img.naturalHeight}`);
+              resolve(img);
+            };
+            img.onerror = reject;
+            img.src = URL.createObjectURL(sorted[i].file);
+          });
+
+          const img2 = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+              console.log(`[FM-FEAT] img[${i+1}] cargada: ${img.naturalWidth}×${img.naturalHeight}`);
+              resolve(img);
+            };
+            img.onerror = reject;
+            img.src = URL.createObjectURL(sorted[i + 1].file);
+          });
+
+          // Detectar features en ambas imágenes
+          console.log(`[FM-FEAT] Extrayendo features de par ${i}-${i + 1}...`);
+          const features1 = extractFeatures(img1, 200);
+          const features2 = extractFeatures(img2, 200);
+          console.log(`[FM-FEAT] Detectadas ${features1.length} features en img[${i}], ${features2.length} en img[${i+1}]`);
+
+          // Matching
+          const matches = matchFeatures(features1, features2);
+          console.log(`[FM-FEAT] Matched ${matches.length} pares válidos`);
+
+          if (matches.length >= 4) {
+            const hom = calculateHomography(matches);
+            console.log(`[FM-FEAT] Homografía calculada: quality=${hom.quality.toFixed(3)}, inliers=${hom.inliers.length}`);
+
+            // Threshold más bajo para aceptar más alineaciones (incluso mediocres ayudan)
+            const qualityThreshold = 0.15;
+            if (hom.quality > qualityThreshold) {
+              alignmentCache.set(`${i}-${i + 1}`, {
+                offset: [hom.matrix[0][2], hom.matrix[1][2]],
+                scale: [
+                  Math.sqrt(hom.matrix[0][0] ** 2 + hom.matrix[0][1] ** 2),
+                  Math.sqrt(hom.matrix[1][0] ** 2 + hom.matrix[1][1] ** 2)
+                ],
+                rotation: Math.atan2(hom.matrix[1][0], hom.matrix[0][0]),
+                homography: hom.matrix,
+                quality: hom.quality,
+              });
+              const qualityLabel = hom.quality > 0.5 ? '✓ EXCELENTE' : hom.quality > 0.3 ? '◐ BUENA' : '△ ACEPTABLE';
+              console.log(`[FM-FEAT] ${qualityLabel} Pair ${i}-${i + 1}: quality=${hom.quality.toFixed(3)}, offset=${[hom.matrix[0][2], hom.matrix[1][2]].map(v => v.toFixed(1)).join(', ')}`);
+            } else {
+              console.log(`[FM-FEAT] ✗ Pair ${i}-${i + 1} DESCARTADO: quality=${hom.quality.toFixed(3)} < ${qualityThreshold}`);
+            }
+          } else {
+            console.log(`[FM-FEAT] ⚠️ Pair ${i}-${i + 1}: insuficientes matches (${matches.length}/4)`);
+          }
+
+          // Revocar URLs (importante para liberar memoria)
+          const src1 = img1.src;
+          const src2 = img2.src;
+          img1.src = '';
+          img2.src = '';
+          URL.revokeObjectURL(src1);
+          URL.revokeObjectURL(src2);
+        } catch (e) {
+          console.warn(`[FEATURE-MATCHING] Error en pair ${i}:`, e);
+        }
+
+        // Yield para no congelar UI, más rápido que 100ms
+        if (i % 5 === 0) {
+          await new Promise<void>(r => setTimeout(r, 50));
+        }
+      }
+
+      const cachedCount = alignmentCache.size;
+      console.log(`[FEATURE-MATCHING] ✓ Pre-cálculo completado: ${cachedCount}/${overlapCount} pares solapados procesados, ${cachedCount} en caché (quality > 0.2)`);
+    }
+
+    let lastRefImage: HTMLImageElement | null = null; // Mantener referencia a imagen anterior para histogram matching
 
     for (let i = 0; i < sorted.length; i += BATCH) {
       const batch = sorted.slice(i, i + BATCH);
@@ -1975,13 +2386,19 @@ export default function DronMosaicoLab() {
           const url = URL.createObjectURL(p.file);
           await new Promise<void>((resolve, reject) => {
             const img = new Image();
-            img.onload = () => {
+            img.onload = async () => {
               const [[bSouth, bWest], [bNorth, bEast]] = p.bounds;
               const [x0, y0] = gpsToPixel(bNorth, bWest);
               const [x1, y1] = gpsToPixel(bSouth, bEast);
               const dw = Math.round(x1 - x0);
               const dh = Math.round(y1 - y0);
               if (dw <= 0 || dh <= 0) { URL.revokeObjectURL(url); resolve(); return; }
+
+              // Calcular escala de imagen a canvas
+              const imgWidth = img.naturalWidth;
+              const imgHeight = img.naturalHeight;
+              const scaleX = dw / imgWidth;
+              const scaleY = dh / imgHeight;
 
               // Canvas temporal para esta foto
               const tmp = document.createElement('canvas');
@@ -1993,27 +2410,127 @@ export default function DronMosaicoLab() {
               if (Math.abs(ef - 1) > 0.05) {
                 tc.filter = `brightness(${(ef * 100).toFixed(0)}%)`;
               }
-              tc.drawImage(img, 0, 0, dw, dh);
+
+              // Aplicar perspectiva correcta si está habilitada
+              if (qualityConfig.perspectiveCorrection) {
+                applyHomography(tc, img, 0, 0, dw, dh, true);
+              } else {
+                tc.drawImage(img, 0, 0, dw, dh);
+              }
               tc.filter = 'none';
 
-              // Máscara feather: gradiente radial desde el centro, transparente en bordes
-              const fx = dw * FEATHER;
-              const fy = dh * FEATHER;
+              // Validar alineación por líneas de cultivo si está habilitado (precision/ultra)
+              if (qualityConfig.validateByFieldLines && lastRefImage && idx > 0) {
+                try {
+                  const validation = await validateAlignmentByFieldLines(lastRefImage, img);
+                  if (!validation.isValid) {
+                    console.warn(`[ALIGN-VALIDATION] Foto ${idx} alineación cuestionable:`, validation.warnings);
+                    // Si no es válida pero confidence > 0.3, seguir (mejor algo que nada)
+                    if (validation.confidence < 0.3) {
+                      console.warn(`[ALIGN-VALIDATION] Foto ${idx} descartada por baja confianza`);
+                      URL.revokeObjectURL(url);
+                      resolve(); // Saltar esta foto
+                      return;
+                    }
+                  } else if (validation.lineMatchCount > 0) {
+                    console.log(`[ALIGN-VALIDATION] ✓ Foto ${idx}: ${validation.lineMatchCount} líneas coinciden, confidence=${validation.confidence.toFixed(3)}`);
+                  }
+                } catch (e) {
+                  console.warn('[ALIGN-VALIDATION] Error en validación:', e);
+                }
+              }
+
+              // Aplicar histogram matching con referencia si está habilitado
+              if (qualityConfig.histogramMatching && idx > 0 && lastRefImage) {
+                try {
+                  const imgData = matchHistogramsToReference(lastRefImage, img);
+                  tc.putImageData(imgData, 0, 0);
+                  console.log(`[HISTOGRAM] Foto ${idx}: matching aplicado`);
+                } catch (e) {
+                  console.warn(`[HISTOGRAM] Error en foto ${idx}:`, e);
+                  // Fallback a basic matching
+                  const imgData = matchHistograms(tc, img);
+                  tc.putImageData(imgData, 0, 0);
+                }
+              } else if (qualityConfig.histogramMatching && idx > 0) {
+                // Fallback si no hay referencia
+                const imgData = matchHistograms(tc, img);
+                tc.putImageData(imgData, 0, 0);
+              }
+
+              // Guardar esta imagen como referencia para la siguiente
+              lastRefImage = img;
+
+              // Máscara feather: gradiente radial muy amplio para transiciones suaves
+              const centerX = dw / 2;
+              const centerY = dh / 2;
+              const maxRadius = Math.max(dw, dh) / 2;
+              const innerRadius = maxRadius * (1 - FEATHER);
+              const outerRadius = maxRadius * (1 + FEATHER_INNER);
+
               const mask = tc.createRadialGradient(
-                dw / 2, dh / 2, Math.min(dw, dh) * (0.5 - FEATHER),
-                dw / 2, dh / 2, Math.max(dw / 2, dh / 2)
+                centerX, centerY, Math.max(0, innerRadius),
+                centerX, centerY, outerRadius
               );
+              // Gradiente suave: opaco en el núcleo, transparente en bordes extremos
               mask.addColorStop(0, 'rgba(0,0,0,1)');
+              mask.addColorStop(0.3, 'rgba(0,0,0,0.95)');
+              mask.addColorStop(0.65, 'rgba(0,0,0,0.5)');
               mask.addColorStop(1, 'rgba(0,0,0,0)');
 
-              // Aplicar máscara: destination-in recorta el contenido
+              // Aplicar máscara
               tc.globalCompositeOperation = 'destination-in';
               tc.fillStyle = mask;
               tc.fillRect(0, 0, dw, dh);
-              tc.globalCompositeOperation = 'source-over';
+
+              // Aplicar blend mode del usuario (o source-over por defecto)
+              // Las transiciones suaves (50% feather) ocultan las costuras
+              ctx.globalCompositeOperation = advancedSettings.blendMode === 'normal'
+                ? 'source-over'
+                : (advancedSettings.blendMode as GlobalCompositeOperation);
 
               // Componer en canvas principal
-              ctx.drawImage(tmp, Math.round(x0), Math.round(y0));
+              // Si hay alignment transform disponible (feature matching), aplicar transformación completa
+              const alignKey = `${idx - 1}-${idx}`;
+
+              if (qualityConfig.useFeatureMatching && alignmentCache.has(alignKey)) {
+                const transform = alignmentCache.get(alignKey)!;
+                // Escalar la transformación de imagen a canvas
+                const adjustX = transform.offset[0] * scaleX;
+                const adjustY = transform.offset[1] * scaleY;
+                const scaleXFactor = transform.scale[0];
+                const scaleYFactor = transform.scale[1];
+                const rotationRad = transform.rotation;
+
+                // Aplicar transformación geométrica completa
+                ctx.save();
+                ctx.translate(Math.round(x0 + adjustX), Math.round(y0 + adjustY));
+                if (Math.abs(rotationRad) > 0.01) {
+                  ctx.rotate(rotationRad);
+                }
+                if (Math.abs(scaleXFactor - 1) > 0.01 || Math.abs(scaleYFactor - 1) > 0.01) {
+                  ctx.scale(scaleXFactor, scaleYFactor);
+                }
+                ctx.drawImage(tmp, -dw / 2, -dh / 2, dw, dh);
+                ctx.restore();
+
+                // Always log si hay transformación significante
+                const hasSignificantTransform =
+                  Math.abs(adjustX) > 0.3 || Math.abs(adjustY) > 0.3 ||
+                  Math.abs(rotationRad) > 0.005 ||
+                  Math.abs(scaleXFactor - 1) > 0.002;
+
+                if (hasSignificantTransform) {
+                  console.log(`[FM-DRAW] ✓ Foto ${idx}: APLICADO offset=(${adjustX.toFixed(2)}, ${adjustY.toFixed(2)})px, scale=(${scaleXFactor.toFixed(4)}, ${scaleYFactor.toFixed(4)}), rot=${(rotationRad * 180 / Math.PI).toFixed(2)}°`);
+                }
+              } else {
+                // Sin transformación, dibujar normalmente
+                if (alignKey && !alignmentCache.has(alignKey) && qualityConfig.useFeatureMatching) {
+                  // Silently draw without transform (normal alignment)
+                }
+                ctx.drawImage(tmp, Math.round(x0), Math.round(y0));
+              }
+
               URL.revokeObjectURL(url);
               resolve();
             };
@@ -2023,27 +2540,297 @@ export default function DronMosaicoLab() {
         } catch { /* skip */ }
       }));
 
-      setMosaicProgress({ done: Math.min(i + BATCH, sorted.length), total: sorted.length });
+      setMosaicProgress({
+        done: Math.min(i + BATCH, sorted.length),
+        total: sorted.length
+      });
       // Yield cada batch → UI no se congela
       await new Promise<void>(r => setTimeout(r, 0));
     }
 
-    // ── 7. Exportar ───────────────────────────────────────────────────────────
-    canvas.toBlob((blob) => {
-      if (!blob) { setGeneratingMosaic(false); return; }
+    // ── 7. Exportar canvas y guardar en Storage ─────────────────────────────────
+    canvas.toBlob(async (blob) => {
+      console.log('[F2] Canvas toBlob callback ejecutándose');
+      if (!blob) {
+        console.warn('[F2] Blob es null');
+        setGeneratingMosaic(false);
+        return;
+      }
       if (mosaicUrl) URL.revokeObjectURL(mosaicUrl);
-      setMosaicUrl(URL.createObjectURL(blob));
+
+      // Mostrar mosaico localmente
+      const localUrl = URL.createObjectURL(blob);
+      setMosaicUrl(localUrl);
       setMosaicBounds([[minLat, minLng], [maxLat, maxLng]]);
+      console.log('[F2] Mosaico mostrado localmente');
+
+      // Fase 2: Subir mosaico a Storage
+      console.log('[F2] Subiendo mosaico a Storage...');
+      const mosaicStorageUrl = await uploadMosaicJpeg(blob, empresaId, newSessionId);
+      if (mosaicStorageUrl) {
+        console.log('[F2] Mosaico subido a:', mosaicStorageUrl);
+        // Guardar resultado en BD
+        await saveMosaicResult({
+          empresa_id: empresaId,
+          sesion_id: newSessionId,
+          nombre: `Mosaico ${new Date().toLocaleDateString('es-CR')}`,
+          url_jpeg_storage: mosaicStorageUrl,
+          bounds: [[minLat, minLng], [maxLat, maxLng]],
+          fotos_count: workingPhotos.length,
+        });
+        setMosaicResult({ sessionId: newSessionId, mosaicUrl: mosaicStorageUrl });
+      }
+
+      // Lanzar uploads en background usando setTimeout para asegurar que se ejecute
+      console.log('[F2] Preparando uploads de fotos en background');
       setGeneratingMosaic(false);
-    }, 'image/jpeg', 0.90); // 90% calidad (vs 85% original)
+
+      // Lanzar uploads con pequeño delay para que se ejecute en el siguiente tick
+      setTimeout(() => {
+        console.log('[F2] setTimeout ejecutándose');
+        const fotosToUpload = photosToUploadRef.current;
+        console.log(`[F2] uploadPhotosBackground llamada con ${fotosToUpload.length} fotos`);
+        // Ahora con Storage policies configuradas, intentar uploads reales
+        uploadPhotosBackground(fotosToUpload, newSessionId, empresaId, false);
+      }, 100);
+    }, 'image/jpeg', advancedSettings.jpegQuality / 100);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photos, mosaicResolution]);
+  }, [photos, mosaicResolution, advancedSettings, alignmentQuality, filterBlurry]);
 
   const clearMosaic = useCallback(() => {
     if (mosaicUrl) URL.revokeObjectURL(mosaicUrl);
     setMosaicUrl(null);
     setMosaicBounds(null);
   }, [mosaicUrl]);
+
+  // ── Descargas de mosaico (GeoJSON, GeoJPEG) ──────────────────────────────
+  const handleDownloadGeoJSON = useCallback(async () => {
+    if (!mosaicBounds || !mosaicResult) return;
+    try {
+      await downloadGeoJSON(mosaicBounds, mosaicResult.sessionId);
+      console.log('[Mosaico] GeoJSON descargado');
+    } catch (e) {
+      console.error('[Mosaico] Error descargando GeoJSON:', e);
+    }
+  }, [mosaicBounds, mosaicResult]);
+
+  const handleDownloadGeoJPEG = useCallback(async () => {
+    if (!mosaicBounds || !mosaicUrl || !mosaicResult) return;
+    try {
+      // Convertir URL del mosaico a blob
+      const response = await fetch(mosaicUrl);
+      const blob = await response.blob();
+
+      // Obtener dimensiones aprox del canvas
+      const img = new Image();
+      img.onload = () => {
+        downloadGeoJPEG(blob, mosaicBounds!, img.width, img.height, mosaicResult!.sessionId);
+        console.log('[Mosaico] JPEG + WorldFile descargados');
+      };
+      img.src = mosaicUrl;
+    } catch (e) {
+      console.error('[Mosaico] Error descargando GeoJPEG:', e);
+    }
+  }, [mosaicBounds, mosaicUrl, mosaicResult]);
+
+  // ── FASE 4: Handlers para historial y settings ────────────────────────────
+  const handleLoadSession = useCallback(async (session: SessionRecord) => {
+    // Restaurar settings desde la sesión guardada
+    if (session.resolucion) {
+      setAdvancedSettings(prev => ({
+        ...prev,
+        resolution: session.resolucion as 'low' | 'medium' | 'high',
+      }));
+    }
+    if (session.blend_mode) {
+      setAdvancedSettings(prev => ({
+        ...prev,
+        blendMode: session.blend_mode as 'normal' | 'lighten' | 'overlay' | 'screen',
+      }));
+    }
+    if (session.jpeg_quality) {
+      setAdvancedSettings(prev => ({
+        ...prev,
+        jpegQuality: session.jpeg_quality || 90,
+      }));
+    }
+
+    // Cargar mosaico y bounds desde emp_mosaicos
+    try {
+      const { data: mosaico, error } = await supabase
+        .from('emp_mosaicos')
+        .select('url_jpeg_storage, bounds')
+        .eq('sesion_id', session.sesion_id)
+        .single();
+
+      if (error || !mosaico) {
+        console.error('[Mosaico] Error cargando mosaico guardado:', error?.message);
+        return;
+      }
+
+      // Restaurar URL y bounds del mosaico
+      setMosaicUrl(mosaico.url_jpeg_storage);
+      if (mosaico.bounds) {
+        setMosaicBounds(mosaico.bounds as [[number, number], [number, number]]);
+      }
+
+      // Restaurar edits post-mosaico (si existen)
+      if (session.crop_bounds || session.brightness || session.contrast || session.saturation) {
+        setMosaicEditor({
+          active: true,
+          cropBounds: session.crop_bounds || undefined,
+          brightness: session.brightness || 0,
+          contrast: session.contrast || 0,
+          saturation: session.saturation || 0,
+        });
+      }
+
+      // Cambiar a tab "generate" para mostrar el mosaico
+      setActiveTab('generate');
+      console.log('[FASE4] Sesión cargada:', session.sesion_id);
+    } catch (e: any) {
+      console.error('[Mosaico] Exception cargando sesión:', e?.message);
+    }
+  }, []);
+
+  const handleEditSession = useCallback((session: SessionRecord) => {
+    // Por ahora, cargar la sesión y activar el editor
+    handleLoadSession(session);
+    setActiveTab('editor');
+  }, [handleLoadSession]);
+
+  const handleSaveCurrentSession = useCallback(async () => {
+    if (!mosaicResult || !mosaicBounds) {
+      alert('No hay mosaico generado para guardar');
+      return;
+    }
+
+    const sessionData = {
+      nombre_sesion: `Mosaico ${new Date().toLocaleDateString('es-CR')}`,
+      resolucion: advancedSettings.resolution,
+      blend_mode: advancedSettings.blendMode,
+      jpeg_quality: advancedSettings.jpegQuality,
+      crop_bounds: mosaicEditor?.cropBounds || null,
+      brightness: mosaicEditor?.brightness || 0,
+      contrast: mosaicEditor?.contrast || 0,
+      saturation: mosaicEditor?.saturation || 0,
+      fotos_usadas: photos.length,
+      fecha_vuelo: new Date().toISOString().split('T')[0],
+    };
+
+    const saved = await saveSession(empresaId, mosaicResult.sessionId, sessionData);
+    if (saved) {
+      alert('✓ Sesión guardada exitosamente');
+      // Recargar historial
+      const history = await loadSessionHistory(empresaId);
+      setSessionHistory(history);
+    } else {
+      alert('✗ Error al guardar sesión');
+    }
+  }, [mosaicResult, mosaicBounds, advancedSettings, mosaicEditor, photos.length, empresaId]);
+
+  const handleSaveEdits = useCallback(async (edits: {
+    cropBounds?: [[number, number], [number, number]];
+    brightness: number;
+    contrast: number;
+    saturation: number;
+  }) => {
+    // Actualizar state mosaicEditor
+    setMosaicEditor({
+      active: true,
+      ...edits,
+    });
+
+    // Si hay sesión vigente, actualizar en BD
+    if (sessionId) {
+      const sessionData = {
+        crop_bounds: edits.cropBounds || null,
+        brightness: edits.brightness,
+        contrast: edits.contrast,
+        saturation: edits.saturation,
+      };
+
+      const saved = await saveSession(empresaId, sessionId, sessionData);
+      if (saved) {
+        console.log('[FASE4c] Edits guardados en sesión:', sessionId);
+      }
+    }
+  }, [sessionId, empresaId]);
+
+  // ── Upload de fotos en background (fuera del callback de canvas.toBlob) ─────
+  async function uploadPhotosBackground(
+    fotosToUpload: PhotoMeta[],
+    sessionId: string,
+    empId: number,
+    skipStorageUpload: boolean = false
+  ) {
+    console.log('[F2] uploadPhotosBackground INICIO:', {
+      fotoCount: fotosToUpload.length,
+      sessionId,
+      skipStorageUpload,
+      mode: skipStorageUpload ? 'TEST (URLs fake)' : 'REAL (Storage uploads)',
+    });
+    const BATCH_SIZE = 10;
+
+    if (!fotosToUpload || fotosToUpload.length === 0) {
+      console.warn('[F2] Sin fotos para subir!');
+      return;
+    }
+
+    console.log(`[F2] Iniciando procesar ${fotosToUpload.length} fotos`);
+
+    for (let i = 0; i < fotosToUpload.length; i += BATCH_SIZE) {
+      const batch = fotosToUpload.slice(i, i + BATCH_SIZE);
+
+      await Promise.all(
+        batch.map(async (p, bi) => {
+          const idx = i + bi;
+          try {
+            let url: string | null = null;
+
+            // Si no skipear Storage, intentar subir
+            if (!skipStorageUpload) {
+              console.log(`[F2] Subiendo foto ${idx} a Storage...`);
+              url = await uploadDronPhoto(p.file, empId, sessionId, idx);
+              if (!url) {
+                console.warn(`[F2] Upload a Storage falló para foto ${idx}, usando URL fake`);
+                // Fallback: usar URL fake para permitir que se guarde metadata
+                url = `https://fake-storage.test/empresa_${empId}/sesion_${sessionId}/foto_${idx}.jpg`;
+              }
+            } else {
+              // TEST: usar URL fake para testear BD
+              url = `https://fake-storage.test/empresa_${empId}/sesion_${sessionId}/foto_${idx}.jpg`;
+              console.log(`[F2] TEST: usando URL fake para foto ${idx}`);
+            }
+
+            console.log(`[F2] Guardando metadata foto ${idx}...`);
+            const saved = await saveDronPhotoMetadata({
+              empresa_id: empId,
+              sesion_id: sessionId,
+              indice: idx,
+              nombre: p.name,
+              url_storage: url,
+              lat: p.lat,
+              lng: p.lng,
+              alt: p.alt || 0,
+              yaw: p.yaw || 0,
+            });
+
+            if (saved) {
+              console.log(`[F2] ✓ Foto ${idx} guardada en BD`);
+              setUploadProgress({ done: idx + 1, total: fotosToUpload.length });
+            } else {
+              console.warn(`[F2] Metadata NO se guardó para foto ${idx}`);
+            }
+          } catch (e) {
+            console.error(`[F2] Error foto ${idx}:`, e);
+          }
+        })
+      );
+    }
+
+    console.log(`[F2] Procesar completado para sesión ${sessionId}`);
+  }
 
   // ── Procesa un archivo GeoTIFF y devuelve la capa ───────────────────────
   const processGeoTiff = useCallback(async (file: File): Promise<GeoTiffLayer | null> => {
@@ -2314,29 +3101,48 @@ export default function DronMosaicoLab() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             <div
               style={{
-                width: 140,
-                height: 6,
-                background: 'var(--surface-overlay)',
-                borderRadius: 3,
-                overflow: 'hidden',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                minWidth: 0,
               }}
             >
               <div
                 style={{
-                  height: '100%',
-                  background: '#a78bfa',
-                  borderRadius: 3,
-                  width:
-                    mosaicProgress.total > 0
-                      ? `${Math.round((mosaicProgress.done / mosaicProgress.total) * 100)}%`
-                      : '0%',
-                  transition: 'width 0.15s',
+                  width: 180,
+                  height: 8,
+                  background: 'var(--surface-overlay)',
+                  borderRadius: 4,
+                  overflow: 'hidden',
                 }}
-              />
+              >
+                <div
+                  style={{
+                    height: '100%',
+                    background: 'linear-gradient(90deg, var(--emp-accent), #4ade80)',
+                    borderRadius: 4,
+                    width:
+                      mosaicProgress.total > 0
+                        ? `${Math.round((mosaicProgress.done / mosaicProgress.total) * 100)}%`
+                        : '0%',
+                    transition: 'width 0.2s ease-out',
+                    boxShadow: '0 0 8px rgba(74, 222, 128, 0.5)',
+                  }}
+                />
+              </div>
+              <span
+                style={{
+                  color: 'var(--ink-muted)',
+                  fontSize: 10,
+                  flexShrink: 0,
+                  minWidth: 80,
+                }}
+              >
+                {mosaicProgress.total > 0
+                  ? `${Math.round((mosaicProgress.done / mosaicProgress.total) * 100)}% (${mosaicProgress.done}/${mosaicProgress.total})`
+                  : 'Preparando…'}
+              </span>
             </div>
-            <span style={{ color: 'var(--ink-muted)', fontSize: 11, flexShrink: 0 }}>
-              Generando mosaico… {mosaicProgress.done} / {mosaicProgress.total}
-            </span>
           </div>
         )}
 
@@ -2404,6 +3210,87 @@ export default function DronMosaicoLab() {
           </>
         )}
 
+        {/* Quality controls (Mejora de Calidad) */}
+        {photos.length > 0 && !generatingMosaic && (
+          <>
+            <div style={{ width: 1, height: 20, background: 'var(--line)', flexShrink: 0 }} />
+
+            {/* Alignment Quality */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <span style={{ color: 'var(--ink-faint)', fontSize: 10 }}>Calidad</span>
+              <select
+                value={alignmentQuality}
+                onChange={(e) => setAlignmentQuality(e.target.value as AlignmentQuality)}
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  border: '1px solid var(--line)',
+                  background: 'var(--surface-overlay)',
+                  color: 'var(--ink)',
+                  fontSize: 10,
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="quick">🚀 Rápida (GPS básico)</option>
+                <option value="normal">⭐ Normal (Recomendado)</option>
+                <option value="precision">🎯 Precisión (Lento)</option>
+                <option value="ultra">🔬 Ultra (Feature Matching - Bloques nítidos)</option>
+              </select>
+            </label>
+
+            {/* Filter Blurry */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', flexShrink: 0 }}>
+              <input
+                type="checkbox"
+                checked={filterBlurry}
+                onChange={(e) => setFilterBlurry(e.target.checked)}
+                style={{ accentColor: 'var(--accent)' }}
+              />
+              <span style={{ color: 'var(--ink-muted)', fontSize: 10 }}>Filtrar borrosas</span>
+            </label>
+
+            {/* Show rejected count */}
+            {rejectedPhotos.length > 0 && (
+              <span style={{ color: '#f97316', fontSize: 10, flexShrink: 0 }}>
+                ⚠️ {rejectedPhotos.length} descartadas
+              </span>
+            )}
+
+            {/* Auto-Quality */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', flexShrink: 0 }}>
+              <input
+                type="checkbox"
+                checked={autoQualityEnabled}
+                onChange={(e) => setAutoQualityEnabled(e.target.checked)}
+                style={{ accentColor: 'var(--accent)' }}
+              />
+              <span style={{ color: 'var(--ink-muted)', fontSize: 10 }}>Auto-calidad</span>
+            </label>
+
+            {/* Coverage metrics */}
+            {coverageMetrics && (
+              <button
+                onClick={() => setShowCoverageAnalysis(!showCoverageAnalysis)}
+                style={{
+                  flexShrink: 0,
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  fontSize: 9,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: coverageMetrics.gapCount > 0 ? '#7f1d1d' : 'var(--surface-overlay)',
+                  color: coverageMetrics.gapCount > 0 ? '#fecaca' : 'var(--ink-muted)',
+                  border: `1px solid ${coverageMetrics.gapCount > 0 ? '#7f1d1d' : 'var(--line)'}`,
+                  transition: 'all 0.2s',
+                }}
+              >
+                📊 {coverageMetrics.coveragePercent.toFixed(0)}%
+                {coverageMetrics.gapCount > 0 && ` • ${coverageMetrics.gapCount} gaps`}
+              </button>
+            )}
+          </>
+        )}
+
         {/* Mosaic controls */}
         {photos.length > 0 && (
           <>
@@ -2432,26 +3319,72 @@ export default function DronMosaicoLab() {
                 {generatingMosaic ? 'Generando…' : 'Generar mosaico'}
               </button>
             ) : (
-              <button
-                onClick={clearMosaic}
-                style={{
-                  flexShrink: 0,
-                  padding: '3px 10px',
-                  borderRadius: 99,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  background: 'transparent',
-                  color: '#f87171',
-                  border: '1px solid #7f1d1d',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-              >
-                <X size={11} />
-                Limpiar mosaico
-              </button>
+              <>
+                <button
+                  onClick={handleDownloadGeoJSON}
+                  title="Descargar GeoJSON con bounds del mosaico"
+                  style={{
+                    flexShrink: 0,
+                    padding: '3px 10px',
+                    borderRadius: 99,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    background: 'transparent',
+                    color: '#60a5fa',
+                    border: '1px solid #1e40af',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  <FileImage size={11} />
+                  GeoJSON
+                </button>
+
+                <button
+                  onClick={handleDownloadGeoJPEG}
+                  title="Descargar JPEG + WorldFile (georeferenciado)"
+                  style={{
+                    flexShrink: 0,
+                    padding: '3px 10px',
+                    borderRadius: 99,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    background: 'transparent',
+                    color: '#34d399',
+                    border: '1px solid #047857',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  <Download size={11} />
+                  GeoJPEG
+                </button>
+
+                <button
+                  onClick={clearMosaic}
+                  style={{
+                    flexShrink: 0,
+                    padding: '3px 10px',
+                    borderRadius: 99,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    background: 'transparent',
+                    color: '#f87171',
+                    border: '1px solid #7f1d1d',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  <X size={11} />
+                  Limpiar
+                </button>
+              </>
             )}
           </>
         )}
@@ -2689,6 +3622,36 @@ export default function DronMosaicoLab() {
         >
           <Settings size={13} />
         </button>
+
+        {/* Advanced Settings button (FASE 4b) */}
+        <button
+          onClick={() => setShowAdvancedSettings(true)}
+          title="Settings avanzados: blend mode, JPEG quality, etc."
+          style={{
+            flexShrink: 0,
+            padding: '3px 8px',
+            borderRadius: 4,
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: 'pointer',
+            background: 'transparent',
+            color: '#a78bfa',
+            border: '1px solid #6d28d9',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = '#6d28d9';
+            (e.currentTarget as HTMLButtonElement).style.color = '#ffffff';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+            (e.currentTarget as HTMLButtonElement).style.color = '#a78bfa';
+          }}
+        >
+          ⚙️ Avanzado
+        </button>
       </div>
 
       {/* Error */}
@@ -2766,8 +3729,128 @@ export default function DronMosaicoLab() {
         </button>
       )}
 
-      {/* ── LOTES PANEL ─────────────────────────────────────────────────── */}
-      <LotesPanel
+      {/* ── TAB NAVIGATION (FASE 4) ────────────────────────────────────── */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 2,
+          padding: '0 8px',
+          background: 'var(--surface-raised)',
+          borderBottom: '1px solid var(--line)',
+          flexShrink: 0,
+          height: 32,
+          alignItems: 'flex-end',
+        }}
+      >
+        {/* Tab: Generar */}
+        <button
+          onClick={() => setActiveTab('generate')}
+          style={{
+            padding: '4px 12px',
+            fontSize: 12,
+            fontWeight: activeTab === 'generate' ? 700 : 500,
+            background: activeTab === 'generate' ? 'var(--surface-overlay)' : 'transparent',
+            color: activeTab === 'generate' ? 'var(--ink)' : 'var(--ink-muted)',
+            border: activeTab === 'generate' ? '1px solid var(--line)' : 'none',
+            borderBottom: activeTab === 'generate' ? 'none' : '1px solid transparent',
+            borderRadius: '6px 6px 0 0',
+            cursor: 'pointer',
+            transition: 'all 0.15s',
+          }}
+          onMouseEnter={(e) => {
+            if (activeTab !== 'generate') {
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--ink-faint)';
+            }
+          }}
+        >
+          <Layers size={13} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
+          Generar
+        </button>
+
+        {/* Tab: Historial */}
+        <button
+          onClick={() => setActiveTab('history')}
+          style={{
+            padding: '4px 12px',
+            fontSize: 12,
+            fontWeight: activeTab === 'history' ? 700 : 500,
+            background: activeTab === 'history' ? 'var(--surface-overlay)' : 'transparent',
+            color: activeTab === 'history' ? 'var(--ink)' : 'var(--ink-muted)',
+            border: activeTab === 'history' ? '1px solid var(--line)' : 'none',
+            borderBottom: activeTab === 'history' ? 'none' : '1px solid transparent',
+            borderRadius: '6px 6px 0 0',
+            cursor: 'pointer',
+            transition: 'all 0.15s',
+          }}
+        >
+          <Clock size={13} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
+          Historial
+        </button>
+
+        {/* Tab: Editor (deshabilitado si no hay mosaico) */}
+        {mosaicUrl && (
+          <button
+            onClick={() => setActiveTab('editor')}
+            style={{
+              padding: '4px 12px',
+              fontSize: 12,
+              fontWeight: activeTab === 'editor' ? 700 : 500,
+              background: activeTab === 'editor' ? 'var(--surface-overlay)' : 'transparent',
+              color: activeTab === 'editor' ? 'var(--ink)' : 'var(--ink-muted)',
+              border: activeTab === 'editor' ? '1px solid var(--line)' : 'none',
+              borderBottom: activeTab === 'editor' ? 'none' : '1px solid transparent',
+              borderRadius: '6px 6px 0 0',
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+            }}
+          >
+            <PenLine size={13} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
+            Editor
+          </button>
+        )}
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Botón para guardar sesión (si hay mosaico) */}
+        {mosaicUrl && mosaicResult && (
+          <button
+            onClick={handleSaveCurrentSession}
+            title="Guardar esta sesión en el historial"
+            style={{
+              padding: '4px 10px',
+              fontSize: 11,
+              fontWeight: 600,
+              background: 'transparent',
+              color: '#34d399',
+              border: '1px solid #047857',
+              borderRadius: 4,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = '#047857';
+              (e.currentTarget as HTMLButtonElement).style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+              (e.currentTarget as HTMLButtonElement).style.color = '#34d399';
+            }}
+          >
+            <Save size={11} />
+            Guardar sesión
+          </button>
+        )}
+      </div>
+
+      {/* ── CONTENIDO SEGÚN TAB ────────────────────────────────────────── */}
+      {activeTab === 'generate' && (
+        <>
+          {/* ── LOTES PANEL ─────────────────────────────────────────────────── */}
+          <LotesPanel
         lotes={lotes}
         zonas={zonas}
         onDeleteLote={deleteLote}
@@ -2983,6 +4066,52 @@ export default function DronMosaicoLab() {
           })}
         </MapContainer>
       </div>
+        </>
+      )}
+
+      {/* ── HISTORIAL (FASE 4) ──────────────────────────────────────────── */}
+      {activeTab === 'history' && (
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflow: 'auto',
+            padding: '12px',
+            background: 'var(--surface-deep)',
+          }}
+        >
+          <SessionHistoryPanel
+            empresaId={empresaId}
+            onLoad={handleLoadSession}
+            onEdit={handleEditSession}
+          />
+        </div>
+      )}
+
+      {/* ── EDITOR (FASE 4c) ────────────────────────────────────────────── */}
+      {activeTab === 'editor' && mosaicUrl && (
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflow: 'auto',
+            padding: '12px',
+            background: 'var(--surface-deep)',
+          }}
+        >
+          <MosaicEditorPanel
+            mosaicUrl={mosaicUrl}
+            mosaicBounds={mosaicBounds || undefined}
+            initialEdits={mosaicEditor || {
+              brightness: 0,
+              contrast: 0,
+              saturation: 0,
+            }}
+            onSaveEdits={handleSaveEdits}
+            onCancel={() => setActiveTab('generate')}
+          />
+        </div>
+      )}
 
       {/* ── MODALS ──────────────────────────────────────────────────────── */}
       {showSettings &&
@@ -2997,6 +4126,174 @@ export default function DronMosaicoLab() {
             onClose={() => setShowSettings(false)}
             onRecalc={recalcFootprints}
           />,
+          document.body
+        )}
+
+      {/* Advanced Settings Modal (FASE 4b) */}
+      {showAdvancedSettings &&
+        createPortal(
+          <AdvancedSettingsModal
+            settings={advancedSettings}
+            onSettingsChange={setAdvancedSettings}
+            onClose={() => setShowAdvancedSettings(false)}
+          />,
+          document.body
+        )}
+
+      {/* Coverage Analysis Modal (Mejora C) */}
+      {showCoverageAnalysis && coverageMetrics &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 2000,
+            }}
+            onClick={() => setShowCoverageAnalysis(false)}
+          >
+            <div
+              style={{
+                background: 'var(--surface-raised)',
+                borderRadius: 12,
+                padding: 24,
+                maxWidth: 500,
+                boxShadow: '0 10px 40px rgba(0,0,0,0.3)',
+                border: '1px solid var(--line)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', marginBottom: 16 }}>
+                📊 Análisis de Cobertura
+              </div>
+
+              {/* Coverage grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                <div style={{ padding: 12, background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginBottom: 4 }}>Cobertura</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent)' }}>
+                    {coverageMetrics.coveragePercent.toFixed(1)}%
+                  </div>
+                </div>
+
+                <div style={{ padding: 12, background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginBottom: 4 }}>Fotos</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#60a5fa' }}>
+                    {photos.length}
+                  </div>
+                </div>
+
+                <div style={{ padding: 12, background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginBottom: 4 }}>Área cubierta</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>
+                    {coverageMetrics.coveredArea.toFixed(2)} ha
+                  </div>
+                </div>
+
+                <div style={{ padding: 12, background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginBottom: 4 }}>Área total</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>
+                    {coverageMetrics.totalArea.toFixed(2)} ha
+                  </div>
+                </div>
+
+                <div style={{ padding: 12, background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginBottom: 4 }}>Altitud promedio</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>
+                    {coverageMetrics.avgAltitude.toFixed(0)} m
+                  </div>
+                </div>
+
+                <div style={{ padding: 12, background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginBottom: 4 }}>Rango</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>
+                    {coverageMetrics.minAltitude.toFixed(0)}–{coverageMetrics.maxAltitude.toFixed(0)} m
+                  </div>
+                </div>
+              </div>
+
+              {/* Coverage adequacy */}
+              <div
+                style={{
+                  padding: 12,
+                  background: coverageMetrics.photoCountAdequate ? 'var(--bg-subtle)' : '#7f1d1d22',
+                  borderRadius: 8,
+                  border: `1px solid ${coverageMetrics.photoCountAdequate ? 'var(--line)' : '#7f1d1d'}`,
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 600, color: coverageMetrics.photoCountAdequate ? 'var(--ink)' : '#f87171', marginBottom: 6 }}>
+                  {coverageMetrics.photoCountAdequate ? '✓ Fotos suficientes' : '⚠️ Fotos insuficientes'}
+                </div>
+                <div style={{ fontSize: 11, color: coverageMetrics.photoCountAdequate ? 'var(--ink-muted)' : '#f87171' }}>
+                  {photos.length} / {coverageMetrics.recommendedPhotoCount} recomendadas • Solapamiento: ~{coverageMetrics.averageOverlap.toFixed(0)}%
+                </div>
+              </div>
+
+              {/* Gaps info */}
+              {coverageMetrics.gapCount > 0 && (
+                <div
+                  style={{
+                    padding: 12,
+                    background: '#7f1d1d22',
+                    borderRadius: 8,
+                    border: '1px solid #7f1d1d',
+                    marginBottom: 16,
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#f87171', marginBottom: 6 }}>
+                    ⚠️ {coverageMetrics.gapCount} zonas sin cobertura
+                  </div>
+                  <div style={{ fontSize: 11, color: '#f87171' }}>
+                    Re-vuela en áreas vacías. Objetivo: 40-60 fotos/ha para solapamiento 40-60%.
+                  </div>
+                </div>
+              )}
+
+              {/* Quality recommendation */}
+              <div
+                style={{
+                  padding: 12,
+                  background: 'var(--surface-overlay)',
+                  borderRadius: 8,
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>
+                  💡 Calidad recomendada
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
+                  {coverageMetrics.recommendedQuality === 'quick'
+                    ? 'Rápida — Pocas fotos, procesamiento veloz'
+                    : coverageMetrics.recommendedQuality === 'normal'
+                    ? 'Normal — Excelente relación calidad/velocidad'
+                    : 'Precisión — Muchas fotos, alineación pixel-perfecta'}
+                </div>
+              </div>
+
+              {/* Close button */}
+              <button
+                onClick={() => setShowCoverageAnalysis(false)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: 'var(--accent)',
+                  color: '#ffffff',
+                  border: 'none',
+                  transition: 'all 0.2s',
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>,
           document.body
         )}
 
