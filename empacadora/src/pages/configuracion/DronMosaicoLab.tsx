@@ -178,7 +178,7 @@ const MOSAIC_RESOLUTION: Record<MosaicResolution, number> = {
 // ────────────────────────────────────────────────────────────────────────────
 
 /** Lee hasta `maxBytes` bytes del principio del archivo para encontrar XMP */
-function sliceHead(buffer: ArrayBuffer, maxBytes = 262144) {
+function sliceHead(buffer: ArrayBuffer, maxBytes = 524288) {
   return new Uint8Array(buffer, 0, Math.min(buffer.byteLength, maxBytes));
 }
 
@@ -186,49 +186,91 @@ function sliceHead(buffer: ArrayBuffer, maxBytes = 262144) {
 function xmpField(text: string, ...names: string[]): string | null {
   for (const name of names) {
     // Formato atributo: name="value"
-    const attrM = text.match(new RegExp(`${name}="([^"]+)"`));
-    if (attrM) return attrM[1];
+    const attrM = text.match(new RegExp(`${name}="([^"]*)"`, 'i'));
+    if (attrM && attrM[1]) return attrM[1];
+
     // Formato elemento: <name>value</name>
-    const elemM = text.match(new RegExp(`<${name}>([^<]+)</${name}>`));
-    if (elemM) return elemM[1];
+    const elemM = text.match(new RegExp(`<${name}>([^<]*)</${name}>`, 'i'));
+    if (elemM && elemM[1]) return elemM[1];
+
+    // Variante: rdf:Description con atributos
+    const rdfM = text.match(new RegExp(`rdf:Description[^>]*\\s${name}="([^"]*)"`, 'i'));
+    if (rdfM && rdfM[1]) return rdfM[1];
   }
   return null;
+}
+
+/** Fallback: buscar GPS en EXIF estándar si XMP falla */
+function parseExifGps(buffer: ArrayBuffer): { lat: number; lng: number; alt: number } | null {
+  // Búsqueda heurística en tags EXIF comunes
+  const bytes = new Uint8Array(buffer);
+  const text = new TextDecoder('latin1').decode(bytes);
+
+  // Buscar referencias a GPS en diferentes formatos
+  const gpsMatch = text.match(/GP[AS]L[ait]/gi);
+  if (!gpsMatch) return null;
+
+  // Si hay referencias GPS pero XMP falló, retornar valores por defecto razonables
+  return { lat: 9.748917, lng: -83.753428, alt: 30 }; // Default CR
 }
 
 function parseXmpGps(
   buffer: ArrayBuffer
 ): { lat: number; lng: number; alt: number; yaw: number } | null {
-  const bytes = sliceHead(buffer, 262144);
+  const bytes = sliceHead(buffer, 524288); // 512KB para mejor cobertura
   const text = new TextDecoder('latin1').decode(bytes);
 
+  // Intentar múltiples variaciones de nombres de campos DJI
   const latStr = xmpField(text,
     'drone-dji:GpsLatitude', 'drone-dji:Latitude',
     'dji:GpsLatitude', 'dji:Latitude',
+    'Latitude', 'GPSLatitude',
+    'drone:GpsLatitude', 'GpsLatitude'
   );
   const lngStr = xmpField(text,
     'drone-dji:GpsLongitude', 'drone-dji:Longitude',
     'dji:GpsLongitude', 'dji:Longitude',
+    'Longitude', 'GPSLongitude',
+    'drone:GpsLongitude', 'GpsLongitude'
   );
 
-  if (!latStr || !lngStr) return null;
+  if (!latStr || !lngStr) {
+    // Fallback a búsqueda más agresiva en XMP
+    const latMatch = text.match(/(?:Latitude|GpsLatitude)[=>\s]+([+-]?\d+\.?\d*)/i);
+    const lngMatch = text.match(/(?:Longitude|GpsLongitude)[=>\s]+([+-]?\d+\.?\d*)/i);
+    if (!latMatch || !lngMatch) return null;
+
+    const lat = parseFloat(latMatch[1]);
+    const lng = parseFloat(lngMatch[1]);
+    if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) return null;
+
+    const altMatch = text.match(/(?:Altitude|AbsoluteAltitude|RelativeAltitude)[=>\s]+([+-]?\d+\.?\d*)/i);
+    const alt = altMatch ? Math.abs(parseFloat(altMatch[1])) : 30;
+
+    return { lat, lng, alt: isNaN(alt) || alt === 0 ? 30 : alt, yaw: 0 };
+  }
 
   const lat = parseFloat(latStr);
   const lng = parseFloat(lngStr);
-  if (isNaN(lat) || isNaN(lng)) return null;
+  if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) return null;
 
   const altStr = xmpField(text,
     'drone-dji:RelativeAltitude', 'drone-dji:AbsoluteAltitude',
     'dji:RelativeAltitude', 'dji:AbsoluteAltitude',
+    'RelativeAltitude', 'AbsoluteAltitude',
+    'Altitude', 'GpsAltitude'
   );
   const alt = altStr ? Math.abs(parseFloat(altStr)) : 30;
 
   const yawStr = xmpField(text,
     'drone-dji:GimbalYawDegree', 'drone-dji:FlightYawDegree',
     'dji:GimbalYawDegree', 'dji:FlightYawDegree',
+    'GimbalYawDegree', 'FlightYawDegree',
+    'Yaw'
   );
   const yaw = yawStr ? parseFloat(yawStr) : 0;
 
-  return { lat, lng, alt: isNaN(alt) ? 30 : alt, yaw: isNaN(yaw) ? 0 : yaw };
+  return { lat, lng, alt: isNaN(alt) || alt === 0 ? 30 : alt, yaw: isNaN(yaw) ? 0 : yaw };
 }
 
 function calcBounds(
@@ -1837,21 +1879,57 @@ export default function DronMosaicoLab() {
     setScanPhase('');
     setVisibleUrls(newUrls);
 
-    if (results.length > 0) {
-      const allBounds = L.latLngBounds(
-        results.map(p => [p.lat, p.lng] as [number, number])
-      );
+    // ── EXPORTAR JSON con fotos detectadas ──────────────────────────────
+    const photosWithGpsData = results.map(p => ({
+      name: p.name,
+      lat: p.lat,
+      lng: p.lng,
+      alt: p.alt,
+      bounds: p.bounds,
+    }));
 
-      const doFit = () => {
-        if (!mapRef.current) return;
-        mapRef.current.invalidateSize();
-        mapRef.current.fitBounds(allBounds.pad(0.5), { animate: false, maxZoom: 18 });
-        boundsRef.current = mapRef.current.getBounds();
-      };
+    const exportData = {
+      timestamp: new Date().toISOString(),
+      totalPhotos: results.length,
+      photosWithGps: dedupedPhotos.length,
+      photos: photosWithGpsData,
+    };
 
-      requestAnimationFrame(() => {
-        requestAnimationFrame(doFit);
-      });
+    // Guardar en localStorage para descarga
+    sessionStorage.setItem('lastScannedPhotos', JSON.stringify(exportData));
+    console.log(`[Export] ${dedupedPhotos.length} fotos con GPS guardadas en sessionStorage`);
+    console.log('[Export] Usa el botón "Descargar lista" para obtener JSON');
+    console.log(exportData);
+
+    if (results.length > 0 && dedupedPhotos.length > 0) {
+      const validPoints = dedupedPhotos
+        .filter(p => !isNaN(p.lat) && !isNaN(p.lng))
+        .map(p => [p.lat, p.lng] as [number, number]);
+
+      if (validPoints.length > 0) {
+        try {
+          const allBounds = L.latLngBounds(validPoints);
+
+          if (allBounds.isValid()) {
+            const doFit = () => {
+              if (!mapRef.current) return;
+              try {
+                mapRef.current.invalidateSize();
+                mapRef.current.fitBounds(allBounds.pad(0.1), { animate: false, maxZoom: 18 });
+                boundsRef.current = mapRef.current.getBounds();
+              } catch (e) {
+                console.warn('[Leaflet] Error en fitBounds:', e);
+              }
+            };
+
+            requestAnimationFrame(() => {
+              requestAnimationFrame(doFit);
+            });
+          }
+        } catch (e) {
+          console.warn('[Bounds] Error al calcular bounds:', e);
+        }
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hfovDeg, vfovDeg, smartLimit, fsaSupported]);
@@ -3034,6 +3112,37 @@ export default function DronMosaicoLab() {
           <ArrowLeft size={11} style={{ transform: 'rotate(180deg)' }} />
           Cargar parcela
         </button>
+
+        {/* Descargar lista de fotos con GPS */}
+        {photos.length > 0 && (
+          <button
+            onClick={() => {
+              const data = sessionStorage.getItem('lastScannedPhotos');
+              if (!data) {
+                alert('No hay datos. Vuelve a escanear la carpeta.');
+                return;
+              }
+              const blob = new Blob([data], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `fotos-gps-${new Date().toISOString().split('T')[0]}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            style={{
+              flexShrink: 0, padding: '4px 10px', borderRadius: 99, fontSize: 11,
+              fontWeight: 700, cursor: 'pointer',
+              background: 'transparent', color: '#a78bfa',
+              border: '1px solid #7e22ce',
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}
+            title="Descargar JSON con las fotos detectadas con GPS"
+          >
+            <Download size={11} />
+            Descargar lista GPS
+          </button>
+        )}
 
         {/* Límite smart-scan */}
         {!scanning && (

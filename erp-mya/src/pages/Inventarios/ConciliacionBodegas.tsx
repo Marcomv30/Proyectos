@@ -16,21 +16,32 @@ interface Bodega {
   es_principal: boolean;
 }
 
+interface Sucursal {
+  id: number;
+  nombre: string;
+  bodega_id: number | null;
+  activo?: boolean;
+}
+
 interface FilaConciliacion {
   producto_id: number;
   codigo: string | null;
   descripcion: string;
   unidad_medida: string;
+  costo_promedio: number;
   stock_global: number;           // inv_productos.stock_actual
   stocks_bodega: Record<number, number | null>; // bodegaId → stock (null = sin registro)
   suma_bodegas: number;           // suma de todos los inv_stock_bodega
   diferencia: number;             // stock_global - suma_bodegas
+  valor_global: number;
+  valores_bodega: Record<number, number>;
 }
 
 type FiltroEstado = 'todos' | 'con_diferencia' | 'sin_registro';
 
 export default function ConciliacionBodegas({ empresaId }: Props) {
   const [bodegas, setBodegas]       = useState<Bodega[]>([]);
+  const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [filas, setFilas]           = useState<FilaConciliacion[]>([]);
   const [cargando, setCargando]     = useState(false);
   const [calculado, setCalculado]   = useState(false);
@@ -41,13 +52,13 @@ export default function ConciliacionBodegas({ empresaId }: Props) {
   const [sincronizando, setSincronizando] = useState<number | null>(null);
   const [cargaInicial, setCargaInicial]   = useState<{ bodegaId: number | null; cargando: boolean; msg: string | null }>({ bodegaId: null, cargando: false, msg: null });
 
-  const authHeaders = async (): Promise<Record<string, string>> => {
+  const authHeaders = useCallback(async (): Promise<Record<string, string>> => {
     const { data } = await supabase.auth.getSession();
     const token = data?.session?.access_token;
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) h['Authorization'] = `Bearer ${token}`;
     return h;
-  };
+  }, []);
 
   // Cargar bodegas al montar
   useEffect(() => {
@@ -61,6 +72,26 @@ export default function ConciliacionBodegas({ empresaId }: Props) {
       .then(({ data }) => setBodegas((data || []) as Bodega[]));
   }, [empresaId]);
 
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      if (!empresaId) {
+        if (!cancelado) setSucursales([]);
+        return;
+      }
+      try {
+        const resp = await fetch(`/api/pos/sucursales?empresa_id=${empresaId}`, {
+          headers: await authHeaders(),
+        });
+        const json = await resp.json();
+        if (!cancelado) setSucursales((json?.ok ? json.sucursales : []) || []);
+      } catch {
+        if (!cancelado) setSucursales([]);
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [empresaId, authHeaders]);
+
   const calcular = useCallback(async () => {
     setCargando(true);
     setError(null);
@@ -69,7 +100,7 @@ export default function ConciliacionBodegas({ empresaId }: Props) {
       // 1. Traer todos los productos
       let q = supabase
         .from('inv_productos')
-        .select('id, codigo, descripcion, unidad_medida, stock_actual')
+        .select('id, codigo, descripcion, unidad_medida, stock_actual, costo_promedio')
         .eq('empresa_id', empresaId)
         .order('descripcion');
       if (soloActivos) q = q.or('activo.is.null,activo.eq.true');
@@ -97,21 +128,29 @@ export default function ConciliacionBodegas({ empresaId }: Props) {
       const resultado: FilaConciliacion[] = productos.map((p) => {
         const stocksProducto = stockIdx.get(p.id);
         const stocks_bodega: Record<number, number | null> = {};
+        const valores_bodega: Record<number, number> = {};
+        const costoPromedio = Number((p as any).costo_promedio ?? 0);
         let suma = 0;
         for (const bid of bodegaIds) {
           const val = stocksProducto?.get(bid) ?? null;
           stocks_bodega[bid] = val;
+          const qty = val ?? 0;
           if (val !== null) suma += val;
+          valores_bodega[bid] = Math.round(qty * costoPromedio * 100) / 100;
         }
+        const stockGlobal = Number(p.stock_actual ?? 0);
         return {
           producto_id: p.id,
           codigo: p.codigo,
           descripcion: p.descripcion,
           unidad_medida: p.unidad_medida || 'Unid',
-          stock_global: Number(p.stock_actual ?? 0),
+          costo_promedio: costoPromedio,
+          stock_global: stockGlobal,
           stocks_bodega,
           suma_bodegas: suma,
-          diferencia: Number(p.stock_actual ?? 0) - suma,
+          diferencia: stockGlobal - suma,
+          valor_global: Math.round(stockGlobal * costoPromedio * 100) / 100,
+          valores_bodega,
         };
       });
 
@@ -167,22 +206,37 @@ export default function ConciliacionBodegas({ empresaId }: Props) {
     setSincronizando(null);
   };
 
+
   // Exportar a Excel
   const exportar = () => {
     const filasFiltradas = filasFiltro();
-    const cabecera = ['Código', 'Descripción', 'Unidad', 'Stock Global', ...bodegas.map((b) => b.nombre), 'Suma Bodegas', 'Diferencia'];
+    const cabecera = ['Codigo', 'Descripcion', 'Unidad', 'Costo Promedio', 'Stock Global', 'Valor Global', ...bodegas.map((b) => b.nombre), 'Suma Bodegas', 'Diferencia'];
     const rows = filasFiltradas.map((f) => [
       f.codigo || '',
       f.descripcion,
       f.unidad_medida,
+      f.costo_promedio,
       f.stock_global,
+      f.valor_global,
       ...bodegas.map((b) => f.stocks_bodega[b.id] ?? ''),
       f.suma_bodegas,
       f.diferencia,
     ]);
     const ws = XLSX.utils.aoa_to_sheet([cabecera, ...rows]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Conciliación');
+    XLSX.utils.book_append_sheet(wb, ws, 'Conciliacion');
+
+    const resumenRows = [
+      ['Tipo', 'Nombre', 'Bodega', 'Stock', 'Saldo CRC'],
+      ['General', 'Stock Global', '', '', saldoGeneral],
+      ['General', 'Stock Bodegas', '', '', saldoBodegas],
+      ['General', 'Brecha', '', '', brechaSaldo],
+      ...consolidadoBodegas.map((b) => ['Bodega', b.nombre, b.es_principal ? 'Principal' : '', b.stock, b.valor]),
+      ...consolidadoTiendas.map((t) => ['Tienda', t.nombre, bodegas.find((b) => b.id === t.bodega_id)?.nombre || `Bodega ${t.bodega_id}`, t.stock, t.valor]),
+    ];
+    const wsResumen = XLSX.utils.aoa_to_sheet(resumenRows);
+    XLSX.utils.book_append_sheet(wb, wsResumen, 'Consolidado');
+
     XLSX.writeFile(wb, `conciliacion_bodegas_${new Date().toLocaleDateString('en-CA')}.xlsx`);
   };
 
@@ -226,6 +280,27 @@ export default function ConciliacionBodegas({ empresaId }: Props) {
   const filasVista = filasFiltro();
   const totalDiferencias = filas.filter((f) => Math.abs(f.diferencia) > 0.001).length;
   const totalSinRegistro = filas.filter((f) => bodegas.some((b) => f.stocks_bodega[b.id] === null && f.stock_global > 0)).length;
+  const saldoGeneral = filas.reduce((acc, f) => acc + f.valor_global, 0);
+  const saldoBodegas = filas.reduce((acc, f) => acc + Object.values(f.valores_bodega).reduce((a, v) => a + Number(v || 0), 0), 0);
+  const brechaSaldo = saldoGeneral - saldoBodegas;
+
+  const consolidadoBodegas = bodegas.map((b) => {
+    const stock = filas.reduce((acc, f) => acc + Number(f.stocks_bodega[b.id] ?? 0), 0);
+    const valor = filas.reduce((acc, f) => acc + Number(f.valores_bodega[b.id] || 0), 0);
+    return { ...b, stock, valor };
+  });
+
+  const consolidadoTiendas = sucursales
+    .filter((s) => !!s.bodega_id)
+    .map((s) => {
+      const bodegaId = Number(s.bodega_id);
+      const stock = filas.reduce((acc, f) => acc + Number(f.stocks_bodega[bodegaId] ?? 0), 0);
+      const valor = filas.reduce((acc, f) => acc + Number(f.valores_bodega[bodegaId] || 0), 0);
+      return { id: s.id, nombre: s.nombre, bodega_id: bodegaId, stock, valor };
+    });
+
+  const fmtSaldo = (n: number) =>
+    n.toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const colorDif = (d: number) => {
     if (Math.abs(d) < 0.001) return 'text-gray-500';
@@ -359,6 +434,82 @@ export default function ConciliacionBodegas({ empresaId }: Props) {
               ✕ Quitar filtro ({filtro === 'con_diferencia' ? 'Con diferencia' : 'Sin registro'})
             </button>
           )}
+        </div>
+      )}
+
+      {calculado && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-4">
+            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Consolidado General y Bodegas</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+              <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+                <div className="text-[11px] text-gray-400">Saldo general</div>
+                <div className="text-lg font-bold text-cyan-300">CRC {fmtSaldo(saldoGeneral)}</div>
+              </div>
+              <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+                <div className="text-[11px] text-gray-400">Saldo bodegas</div>
+                <div className="text-lg font-bold text-sky-300">CRC {fmtSaldo(saldoBodegas)}</div>
+              </div>
+              <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+                <div className="text-[11px] text-gray-400">Brecha saldo</div>
+                <div className={`text-lg font-bold ${Math.abs(brechaSaldo) < 0.01 ? 'text-green-400' : brechaSaldo > 0 ? 'text-yellow-400' : 'text-red-400'}`}>
+                  CRC {fmtSaldo(brechaSaldo)}
+                </div>
+              </div>
+            </div>
+            <div className="overflow-x-auto rounded-lg border border-gray-800">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-850 border-b border-gray-800">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-gray-400">Bodega</th>
+                    <th className="px-3 py-2 text-right text-gray-400">Stock</th>
+                    <th className="px-3 py-2 text-right text-gray-400">Saldo CRC</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {consolidadoBodegas.map((b) => (
+                    <tr key={b.id} className="border-b border-gray-800/50">
+                      <td className="px-3 py-2 text-white">{b.nombre}{b.es_principal ? ' *' : ''}</td>
+                      <td className="px-3 py-2 text-right text-gray-300">{b.stock.toLocaleString('es-CR', { maximumFractionDigits: 4 })}</td>
+                      <td className="px-3 py-2 text-right text-cyan-300">CRC {fmtSaldo(b.valor)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-4">
+            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Consolidado por Tiendas</div>
+            {consolidadoTiendas.length === 0 ? (
+              <div className="text-xs text-gray-500">
+                No hay tiendas (sucursales POS) mapeadas a bodegas activas.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-gray-800">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-850 border-b border-gray-800">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-gray-400">Tienda</th>
+                      <th className="px-3 py-2 text-left text-gray-400">Bodega</th>
+                      <th className="px-3 py-2 text-right text-gray-400">Stock</th>
+                      <th className="px-3 py-2 text-right text-gray-400">Saldo CRC</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {consolidadoTiendas.map((t) => (
+                      <tr key={t.id} className="border-b border-gray-800/50">
+                        <td className="px-3 py-2 text-white">{t.nombre}</td>
+                        <td className="px-3 py-2 text-gray-300">{bodegas.find((b) => b.id === t.bodega_id)?.nombre || `Bodega ${t.bodega_id}`}</td>
+                        <td className="px-3 py-2 text-right text-gray-300">{t.stock.toLocaleString('es-CR', { maximumFractionDigits: 4 })}</td>
+                        <td className="px-3 py-2 text-right text-cyan-300">CRC {fmtSaldo(t.valor)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
