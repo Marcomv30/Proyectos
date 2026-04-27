@@ -1,0 +1,36 @@
+# dependencies
+/node_modules
+/server/node_modules
+/.pnp
+.pnp.js
+
+# environment variables (contain credentials)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.mcp.json
+server/.env
+server/token-cache.json
+
+# testing
+/coverage
+
+# production
+/build
+
+# misc
+.DS_Store
+.secrets/
+Plantas
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Supabase CLI temp artifacts
+/supabase/.temp/
+
+# Build archives
+build-*.tar.gz
