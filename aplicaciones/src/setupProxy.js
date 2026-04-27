@@ -8,7 +8,8 @@ function getTarget() {
     return 'http://localhost:3001';
   }
 
-  return process.env.REACT_APP_API_URL || 'http://localhost:3001';
+  // En producción en VPS, apunta a 3002 (servidor backend)
+  return process.env.REACT_APP_API_URL || 'http://localhost:3002';
 }
 
 module.exports = function(app) {
